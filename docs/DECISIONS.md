@@ -35,3 +35,19 @@ Speech-to-text and reasoning have different cost, latency, privacy, and model re
 ## ADR-008 — chunk before provider upload
 
 A recording must not be sent as one opaque request when it may exceed provider limits. The API chunks long or oversized audio with ffmpeg, offsets every returned segment and word to the original timeline, merges text in order, and deletes temporary chunks. This keeps provider-specific limits out of the domain model and leaves room for a local provider implementation.
+
+## ADR-009 — one JSON writer
+
+The API owns the persisted job scheduler. The Docker worker was removed because separate Node processes each held an independent JSON snapshot and could overwrite one another. Persisted leases and startup recovery provide bounded retry without introducing Redis or a database in the native MVP.
+
+## ADR-010 — durable draft before microphone start
+
+The iOS client writes a versioned local recording manifest before calling `AVAudioRecorder.record()`. Audio remains in Application Support after upload, and launch reconciliation promotes interrupted drafts to a visible recovered state rather than treating the library as empty.
+
+## ADR-011 — client UUID idempotency
+
+Every native recording uses its local UUID as `clientRecordingId`. Streaming uploads land in a temporary file, then a repository create-or-get operation returns the existing Source for retries. The client reconciles by UUID before resending after an ambiguous network failure.
+
+## ADR-012 — meeting brief is additive
+
+Meeting analysis is stored as an optional, strict `MeetingBrief` on Source. It is the native detail screen's canonical representation, while decisions/action items continue to project into legacy Memories/Open Loops so the existing web app remains compatible.

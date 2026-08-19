@@ -1,5 +1,4 @@
-import { store } from "./db.js";
-import { processSource } from "./processor.js";
-async function tick(){for(const job of store.pendingJobs()){if(job.attempts<3)await processSource(job.sourceId,job.id);}}
-await tick();
-setInterval(tick,5000);
+// JSON storage is single-writer. Processing now runs inside server.ts; keeping
+// this entry point as a failing shim prevents an accidental second writer.
+console.error("The standalone worker is retired. Start the API server instead.");
+process.exitCode = 1;

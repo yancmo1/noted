@@ -1,62 +1,18 @@
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import multipart from "@fastify/multipart";
-import cookie from "@fastify/cookie";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { buildApp } from "./app.js";
+import { startJobScheduler } from "./jobs.js";
 import { config } from "./config.js";
-import { store } from "./db.js";
-import { queueSource, processSource } from "./processor.js";
-import { aiProvider, transcriptionProvider } from "./ai.js";
-import type { ConsentMode, LoopStatus, SourceType, TranscriptSegment } from "./types.js";
 
-const app=Fastify({logger:{level:process.env.LOG_LEVEL??"info"},bodyLimit:config.maxUploadBytes+1024*1024});
-await app.register(cors,{origin:true,credentials:true});
-await app.register(multipart,{limits:{fileSize:config.maxUploadBytes,files:1}});
-await app.register(cookie);
-const sessions=new Map<string,{createdAt:number}>();
-const isAuthed=(req:any)=>{const token=req.cookies?.mg_session??req.headers.authorization?.replace("Bearer ","");return !!(token&&sessions.has(token));};
-app.addHook("onRequest",async(req,reply)=>{if(req.url.startsWith("/api/health")||req.url.startsWith("/api/auth")||req.url.startsWith("/api/settings/status"))return;if(!isAuthed(req))return reply.code(401).send({error:"Authentication required"});});
+const app = await buildApp();
+const stopScheduler = startJobScheduler();
 
-app.get("/api/health",async()=>({status:"ok",version:config.version,now:new Date().toISOString()}));
-app.get("/api/auth/status",async(req)=>({authenticated:isAuthed(req)}));
-app.post("/api/auth/login",async(req:any,reply)=>{const body=req.body as {password?:string};if(!body?.password||body.password!==config.authPassword)return reply.code(401).send({error:"Incorrect password"});const token=crypto.randomUUID();sessions.set(token,{createdAt:Date.now()});reply.setCookie("mg_session",token,{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production",path:"/",maxAge:60*60*24*30});return {ok:true};});
-app.post("/api/auth/logout",async(req:any,reply)=>{sessions.delete(req.cookies?.mg_session);reply.clearCookie("mg_session",{path:"/"});return {ok:true};});
+const shutdown = async () => {
+  stopScheduler();
+  await app.close();
+  process.exit(0);
+};
 
-function createCapture(type:SourceType,title:string,text:string,extra:Record<string,unknown>={}){const source=store.createSource({type,title,originalText:text,extractedText:type==="note"?text:"",sourceUrl:extra.sourceUrl as string|undefined,filePath:extra.filePath as string|undefined,mimeType:extra.mimeType as string|undefined,metadata:(extra.metadata as Record<string,unknown>)??{}});queueSource(source.id);return source;}
-app.post("/api/capture/note",async(req:any,reply)=>{const text=String(req.body?.text??"").trim();if(!text)return reply.code(400).send({error:"Note text is required"});return createCapture("note",String(req.body?.title??"Quick note"),text);});
-app.post("/api/capture/url",async(req:any,reply)=>{const url=String(req.body?.url??"").trim();try{new URL(url);}catch{return reply.code(400).send({error:"Enter a valid URL"});}return createCapture("url",String(req.body?.title??url),"",{sourceUrl:url});});
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
 
-async function multipartUpload(req:any){let filePart:any;const fields:Record<string,unknown>={};for await(const part of req.parts()){if(part.type==="file"){filePart=part;const buffer=await part.toBuffer();filePart.buffer=buffer;}else fields[part.fieldname]=part.value;}return {filePart,fields};}
-function field(fields:Record<string,unknown>,name:string){const value=fields[name];return typeof value==="string"?value:(value as any)?.value;}
-function boolField(value:unknown){return value===true||value==="true"||value==="1";}
-function consentMode(value:unknown):ConsentMode{return value==="conversation"||value==="meeting"?value:"private_thought";}
-function clientType(value:unknown):"web"|"native"|"hardware"{return value==="native"||value==="hardware"?value:"web";}
-app.post("/api/capture/voice",async(req:any,reply)=>{const {filePart,fields}=await multipartUpload(req);if(!filePart)return reply.code(400).send({error:"Audio file is required"});const clientRecordingId=String(field(fields,"clientRecordingId")??"").trim();const existing=clientRecordingId?store.findSourceByClientRecordingId(clientRecordingId):undefined;if(existing){const existingSession=existing.recordingSessionId?store.getRecordingSession(existing.recordingSessionId):store.getRecordingSessionForSource(existing.id);return {...existing,recordingSession:existingSession,deduplicated:true};}const mode=consentMode(field(fields,"consentMode"));const acknowledged=boolField(field(fields,"consentAcknowledged"));if((mode==="conversation"||mode==="meeting")&&!acknowledged)return reply.code(400).send({error:"Consent acknowledgement is required for conversation or meeting mode"});const id=crypto.randomUUID();const safe=String(filePart.filename??"recording").replace(/[^a-zA-Z0-9._-]/g,"_");const filePath=path.join(config.dataDir,"uploads",`${id}-${safe}`);await fs.writeFile(filePath,filePart.buffer);const startedAt=String(field(fields,"startedAt")??new Date().toISOString());const endedAt=String(field(fields,"endedAt")??new Date().toISOString());const durationMs=Number(field(fields,"durationMs")??0)||undefined;const client=clientType(field(fields,"client"));const source=store.createSource({id,type:"voice",title:String(field(fields,"title")??`Recording — ${new Date(startedAt).toLocaleString()}`),originalText:"",extractedText:"",filePath,mimeType:filePart.mimetype,audioMimeType:filePart.mimetype,durationMs,consentMode:mode,consentAcknowledged:acknowledged,metadata:{client,clientRecordingId:clientRecordingId||undefined},transcriptStatus:"pending"});const session=store.createRecordingSession({sourceId:source.id,status:"uploaded",startedAt,endedAt,durationMs,mimeType:filePart.mimetype,client,consentMode:mode,consentAcknowledged:acknowledged,metadata:{filename:filePart.filename,clientRecordingId:clientRecordingId||undefined}});store.updateSource(source.id,{recordingSessionId:session.id});queueSource(source.id);return {...store.getSource(source.id),recordingSession:session,deduplicated:false};});
-app.post("/api/capture/file",async(req:any,reply)=>{const {filePart}=await multipartUpload(req);if(!filePart)return reply.code(400).send({error:"A file is required"});const id=crypto.randomUUID();const safe=String(filePart.filename??"file").replace(/[^a-zA-Z0-9._-]/g,"_");const filePath=path.join(config.dataDir,"uploads",`${id}-${safe}`);const buf=filePart.buffer as Buffer;await fs.writeFile(filePath,buf);let extracted="";if(/text\/(plain|markdown)|\.md$|\.txt$/i.test(`${filePart.mimetype} ${filePart.filename}`))extracted=buf.toString("utf8");const type=/image\//.test(filePart.mimetype)?"image":"file";const source=store.createSource({id,type,title:String(filePart.filename),originalText:extracted,extractedText:extracted,mimeType:filePart.mimetype,filePath,metadata:{size:buf.byteLength}});queueSource(source.id);return source;});
-
-function sourceBundle(id:string){const source=store.getSource(id);if(!source)return undefined;const recordingSession=source.recordingSessionId?store.getRecordingSession(source.recordingSessionId):store.getRecordingSessionForSource(id);return {source,recordingSession,transcript:{text:source.transcriptText??"",segments:store.transcriptForSource(id)},memories:store.memoriesForSource(id),entities:store.entitiesForSource(id),openLoops:store.memoriesForSource(id).flatMap(m=>store.listLoops().filter(l=>l.memoryId===m.id))};}
-app.get("/api/sources",async(req:any)=>{const q=req.query as {limit?:string;offset?:string};return {sources:store.listSources(Number(q.limit??50),Number(q.offset??0))};});
-app.get("/api/sources/:id",async(req:any,reply)=>{const bundle=sourceBundle(req.params.id);if(!bundle)return reply.code(404).send({error:"Source not found"});return bundle;});
-app.get("/api/recordings/:id",async(req:any,reply)=>{const bundle=sourceBundle(req.params.id);if(!bundle||bundle.source.type!=="voice")return reply.code(404).send({error:"Recording not found"});return bundle;});
-app.get("/api/recordings/:id/transcript",async(req:any,reply)=>{const bundle=sourceBundle(req.params.id);if(!bundle||bundle.source.type!=="voice")return reply.code(404).send({error:"Recording not found"});return bundle.transcript;});
-app.patch("/api/recordings/:id/transcript",async(req:any,reply)=>{const source=store.getSource(req.params.id);if(!source||source.type!=="voice")return reply.code(404).send({error:"Recording not found"});const text=String(req.body?.text??"").trim();if(!text)return reply.code(400).send({error:"Transcript text is required"});const rawSegments:unknown[]=Array.isArray(req.body?.segments)?req.body.segments:[];const segments:Omit<TranscriptSegment,"id"|"sourceId"|"createdAt">[]=rawSegments.length?rawSegments.map((raw:any,i:number)=>({segmentIndex:i,text:String(raw.text??"").trim(),startMs:typeof raw.startMs==="number"?raw.startMs:undefined,endMs:typeof raw.endMs==="number"?raw.endMs:undefined,speaker:typeof raw.speaker==="string"?raw.speaker:undefined,confidence:typeof raw.confidence==="number"?raw.confidence:undefined})).filter((s:{text:string})=>s.text):[{segmentIndex:0,text}];store.replaceTranscript(source.id,segments);store.updateSource(source.id,{transcriptText:text,extractedText:text,transcriptStatus:"ready",processingStatus:"pending",processingError:undefined});if(source.recordingSessionId)store.updateRecordingSession(source.recordingSessionId,{status:"uploaded"});queueSource(source.id);return sourceBundle(source.id);});
-app.post("/api/sources/:id/reprocess",async(req:any,reply)=>{const source=store.getSource(req.params.id);if(!source)return reply.code(404).send({error:"Source not found"});queueSource(source.id);return {ok:true,sourceId:source.id};});
-app.patch("/api/sources/:id",async(req:any,reply)=>{const source=store.updateSource(req.params.id,{title:String(req.body?.title??"").trim()||undefined});if(!source)return reply.code(404).send({error:"Source not found"});return source;});
-app.delete("/api/sources/:id",async(req:any,reply)=>{if(!store.deleteSource(req.params.id))return reply.code(404).send({error:"Source not found"});return {ok:true};});
-
-app.get("/files/:id",async(req:any,reply)=>{const source=store.getSource(req.params.id);if(!source?.filePath)return reply.code(404).send({error:"File not found"});try{const data=await fs.readFile(source.filePath);const range=String(req.headers.range??"");const mime=source.audioMimeType??source.mimeType??"application/octet-stream";if(range.startsWith("bytes=")){const [startText,endText]=range.slice(6).split("-");const start=Number(startText)||0;const end=Math.min(endText?Number(endText):data.byteLength-1,data.byteLength-1);if(start>=data.byteLength||end<start)return reply.code(416).send();const body=data.subarray(start,end+1);return reply.code(206).headers({"Accept-Ranges":"bytes","Content-Range":`bytes ${start}-${end}/${data.byteLength}`,"Content-Length":String(body.byteLength)}).type(mime).send(body);}return reply.headers({"Accept-Ranges":"bytes","Content-Length":String(data.byteLength)}).type(mime).send(data);}catch{return reply.code(404).send({error:"File not found"});}});
-
-app.get("/api/memories",async(req:any)=>({memories:store.listMemories((req.query as any).type)}));
-app.patch("/api/memories/:id",async(req:any,reply)=>{const current=store.getMemory(req.params.id);if(!current)return reply.code(404).send({error:"Memory not found"});const memory=store.updateMemory(req.params.id,{content:typeof req.body?.content==="string"?req.body.content.trim():current.content,summary:typeof req.body?.summary==="string"?req.body.summary.trim():current.summary,status:req.body?.status??current.status});return memory;});
-app.get("/api/entities",async()=>({entities:store.findEntities()}));
-app.get("/api/open-loops",async(req:any)=>({openLoops:store.listLoops((req.query as any).status)}));
-app.patch("/api/open-loops/:id",async(req:any,reply)=>{const status=req.body?.status as LoopStatus;if(!["open","resolved","dismissed"].includes(status))return reply.code(400).send({error:"Invalid status"});const loop=store.updateLoop(req.params.id,status);if(!loop)return reply.code(404).send({error:"Open loop not found"});return loop;});
-app.get("/api/search",async(req:any)=>{const q=String(req.query?.q??"");return {query:q,results:q?store.search(q,req.query?.type):[]};});
-app.post("/api/ask",async(req:any,reply)=>{const question=String(req.body?.question??"").trim();if(!question)return reply.code(400).send({error:"Question is required"});const results=store.search(question);const context=results.slice(0,8).map((r:any)=>`- ${r.content}${r.supersededBy?" (superseded)":""}${r.evidenceRefs?.[0]?.quote?` [evidence: ${r.evidenceRefs[0].quote}]`:""}`).join("\n");const answer=await aiProvider.answerQuestion(question,context);return {answer,citations:results.slice(0,5).map((r:any)=>{const evidence=r.evidenceRefs?.[0];return {memoryId:r.id,sourceId:r.sourceId,sourceTitle:r.source?.title,sourceType:r.source?.type,capturedAt:r.source?.capturedAt,content:r.content,superseded:!!r.supersededBy,segmentId:evidence?.segmentId,startMs:evidence?.startMs,endMs:evidence?.endMs,quote:evidence?.quote};})};});
-app.get("/api/today",async()=>{const recent=store.recentSources();return {openLoops:store.listLoops("open").slice(0,8),recent,resurfaced:store.resurfaced(),recordings:recent.filter(s=>s.type==="voice"),now:new Date().toISOString()};});
-app.get("/api/settings/status",async()=>({llmMode:config.llmMode==="mock"?"mock":"real",llmModel:config.llmModel||"Deterministic Mock AI",embeddingModel:process.env.EMBEDDING_MODEL??"Keyword retrieval (local)",transcriptionProvider:config.transcriptionProvider,transcriptionMode:transcriptionProvider?"configured":"not configured",transcriptionModel:config.transcriptionModel,transcriptionChunkSeconds:config.transcriptionChunkSeconds,storage:"local filesystem",database:"JSON repository (portable local MVP)",version:config.version}));
-app.get("/api/export",async()=>store.exportData());
-
-for(const job of store.pendingJobs()){if(job.status!=="complete")void processSource(job.sourceId,job.id);}
-app.listen({port:config.port,host:"0.0.0.0"}).then(()=>app.log.info(`Memory Garden API listening on ${config.port}`));
+await app.listen({ port: config.port, host: "0.0.0.0" });
+app.log.info(`Memory Garden API listening on ${config.port}`);

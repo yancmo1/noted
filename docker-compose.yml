@@ -13,19 +13,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    env_file: .env
-    environment:
-      DATA_DIR: /app/storage
-    command: ["node", "apps/api/dist/worker.js"]
-    volumes:
-      - memory_data:/app/storage
-    depends_on:
-      api:
-        condition: service_healthy
   web:
     build:
       context: .

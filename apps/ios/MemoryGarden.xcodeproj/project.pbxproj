@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,6 +11,7 @@
 		11E4C513869EEC6C4A70C894 /* RecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC45EFF90BD191B69F08EBEE /* RecordingsView.swift */; };
 		18CD8A9BE957B760EFE5A95A /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 144B2A526C5C4B7159F1E790 /* APIModels.swift */; };
 		246CC966C083E8ED39AE42F3 /* LocalRecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */; };
+		2C3951955B7D4839EE47C3A3 /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */; };
 		345F90C3D1AF9D9C0622A9F2 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BAA80E0A12E8D81EB44936 /* Design.swift */; };
 		404BDD9E67C4F827F6F89127 /* MemoryGardenApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557895A675C8EA2663ABA3 /* MemoryGardenApp.swift */; };
 		4A3697D43BFDA65F2EB788FF /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1A6E96BE21A6AC18DC7584 /* AudioPlayer.swift */; };
@@ -23,6 +24,7 @@
 		9BAFB84B8163A73FC0A1F345 /* RecordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9442D77C24985168181AC8E6 /* RecordView.swift */; };
 		A868219DCFD721FCCDED1F49 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E6F14337B034EF65F55C60 /* SettingsView.swift */; };
 		AACBA7CE3133A1912ADC92E1 /* MemoryGardenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D02754D51E59660E260EF76 /* MemoryGardenTests.swift */; };
+		B2D3119E56CD1CB554599B71 /* MeetingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D46C318F2D89B72C273D4AA /* MeetingsView.swift */; };
 		C44C912A10F72E9E7480A63D /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF87740B918414C470E70AD /* KeychainStore.swift */; };
 		FBA6B901404A1275B787D504 /* MemoryGardenUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A83BCDB08D245336FF85132 /* MemoryGardenUITests.swift */; };
 /* End PBXBuildFile section */
@@ -46,7 +48,8 @@
 
 /* Begin PBXFileReference section */
 		0BF87740B918414C470E70AD /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
-		1224197A0C6A21555CC4BD79 /* MemoryGarden.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MemoryGarden.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0D46C318F2D89B72C273D4AA /* MeetingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingsView.swift; sourceTree = "<group>"; };
+		1224197A0C6A21555CC4BD79 /* MemoryGarden.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MemoryGarden.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		144B2A526C5C4B7159F1E790 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		16E6F14337B034EF65F55C60 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1A4B0E84A521F0B43AF38D35 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
@@ -57,9 +60,10 @@
 		83C1E08382790ECA7C96781B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		872E6C68F05123C41A8A7708 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		9442D77C24985168181AC8E6 /* RecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordView.swift; sourceTree = "<group>"; };
+		9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
 		9935609027BB55D4A8D65B67 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
-		A8258ACA4132836A62A50705 /* MemoryGardenUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MemoryGardenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2F58B7B321F77F3FA8E9A9F /* MemoryGardenTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MemoryGardenTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8258ACA4132836A62A50705 /* MemoryGardenUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoryGardenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2F58B7B321F77F3FA8E9A9F /* MemoryGardenTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoryGardenTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1557895A675C8EA2663ABA3 /* MemoryGardenApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGardenApp.swift; sourceTree = "<group>"; };
 		C3BAA80E0A12E8D81EB44936 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		C8AD5308AD8178DC0B861859 /* MemoryGarden.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MemoryGarden.entitlements; sourceTree = "<group>"; };
@@ -95,6 +99,7 @@
 				872E6C68F05123C41A8A7708 /* APIClient.swift */,
 				DF1A6E96BE21A6AC18DC7584 /* AudioPlayer.swift */,
 				9935609027BB55D4A8D65B67 /* AudioRecorder.swift */,
+				9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */,
 				0BF87740B918414C470E70AD /* KeychainStore.swift */,
 				80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */,
 				EB6D39F2F9B0C7D47D7E95B6 /* UploadManager.swift */,
@@ -212,10 +217,19 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		F1251CE4B00ABFD0203466FF /* Meetings */ = {
+			isa = PBXGroup;
+			children = (
+				0D46C318F2D89B72C273D4AA /* MeetingsView.swift */,
+			);
+			path = Meetings;
+			sourceTree = "<group>";
+		};
 		F12D6E44AED21F3346DA060D /* Features */ = {
 			isa = PBXGroup;
 			children = (
 				A73DB68ABFB35346A440CC67 /* Ask */,
+				F1251CE4B00ABFD0203466FF /* Meetings */,
 				8F6CD32FD1C7AF385C562198 /* Record */,
 				270E77F9CB6C015F6AB21791 /* Recordings */,
 				FB802B0E7FF257AD4AE06053 /* Settings */,
@@ -296,12 +310,17 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2660;
+				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					87F8541DDEAA41DCB0BFA95C = {
+						DevelopmentTeam = 9PHS626XUN;
 						TestTargetID = DAA7605E5CDBC921F9ED6AE7;
 					};
+					C95D80B1C2D38C0160BF1134 = {
+						DevelopmentTeam = 9PHS626XUN;
+					};
 					DAA7605E5CDBC921F9ED6AE7 = {
+						DevelopmentTeam = 9PHS626XUN;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -316,6 +335,7 @@
 			);
 			mainGroup = EC3870099F8E465E47609B57;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -364,9 +384,11 @@
 				4B29F6A29A326CE70D1A33B9 /* AskView.swift in Sources */,
 				4A3697D43BFDA65F2EB788FF /* AudioPlayer.swift in Sources */,
 				5E954BB2FDDAB87C02950154 /* AudioRecorder.swift in Sources */,
+				2C3951955B7D4839EE47C3A3 /* ConnectivityMonitor.swift in Sources */,
 				345F90C3D1AF9D9C0622A9F2 /* Design.swift in Sources */,
 				C44C912A10F72E9E7480A63D /* KeychainStore.swift in Sources */,
 				246CC966C083E8ED39AE42F3 /* LocalRecordingStore.swift in Sources */,
+				B2D3119E56CD1CB554599B71 /* MeetingsView.swift in Sources */,
 				404BDD9E67C4F827F6F89127 /* MemoryGardenApp.swift in Sources */,
 				9BAFB84B8163A73FC0A1F345 /* RecordView.swift in Sources */,
 				11E4C513869EEC6C4A70C894 /* RecordingsView.swift in Sources */,
@@ -396,6 +418,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 9PHS626XUN;
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -414,7 +438,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -446,10 +469,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -463,7 +484,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -478,6 +498,7 @@
 				CODE_SIGN_ENTITLEMENTS = MemoryGarden/Resources/MemoryGarden.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = MemoryGarden/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -502,6 +523,7 @@
 				CODE_SIGN_ENTITLEMENTS = MemoryGarden/Resources/MemoryGarden.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = MemoryGarden/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -522,6 +544,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 9PHS626XUN;
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -540,6 +564,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 9PHS626XUN;
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -558,7 +584,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -590,10 +615,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -614,7 +637,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -625,6 +647,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 9PHS626XUN;
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

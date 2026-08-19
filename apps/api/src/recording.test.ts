@@ -10,6 +10,11 @@ describe("transcript analysis",()=>{
     await processSource(source.id);
     const processed=store.getSource(source.id)!;
     expect(processed.summary).toMatch(/Bill said/);
+    expect(processed.meetingBrief?.schemaVersion).toBe(1);
+    expect(processed.meetingBrief?.keyPoints.length).toBeGreaterThan(0);
+    expect(processed.meetingBrief?.decisions.length).toBeGreaterThan(0);
+    expect(processed.meetingBrief?.actionItems.length).toBeGreaterThan(0);
+    expect(processed.meetingBrief?.actionItems[0].evidenceRefs[0]?.segmentId).toBeTruthy();
     expect(segments).toHaveLength(3);
     expect(store.transcriptForSource(source.id)).toHaveLength(3);
     const memories=store.memoriesForSource(source.id);

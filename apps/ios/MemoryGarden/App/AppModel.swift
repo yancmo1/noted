@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     let audioRecorder: AudioRecorder
     let keychain = KeychainStore()
     let uploadManager: UploadManager
+    let connectivity: ConnectivityMonitor
 
     @Published var authenticated = false
     @Published var isLoading = true
@@ -17,28 +18,27 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var password = ""
     @Published var isLoggingIn = false
+    @Published var isRestoringSession = false
 
     init() {
         let baseString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "http://127.0.0.1:3333"
         let baseURL = URL(string: baseString.trimmingCharacters(in: .whitespacesAndNewlines)) ?? URL(string: "http://127.0.0.1:3333")!
-        localStore = LocalRecordingStore(); api = APIClient(baseURL: baseURL); audioRecorder = AudioRecorder(store: localStore); uploadManager = UploadManager(api: api, store: localStore)
+        localStore = LocalRecordingStore(); api = APIClient(baseURL: baseURL); audioRecorder = AudioRecorder(store: localStore); uploadManager = UploadManager(api: api, store: localStore); connectivity = ConnectivityMonitor()
+        connectivity.onReachable = { [weak self] in
+            Task { @MainActor [weak self] in await self?.handleSceneActive() }
+        }
+        connectivity.start()
         localRecordings = localStore.load()
     }
 
     func launch() async {
         isLoading = true; localRecordings = localStore.load()
+        if let warning = localStore.lastLoadWarning { errorMessage = warning }
+        isLoading = false
         if let saved = keychain.password() {
             password = saved
-            do {
-                try await api.login(password: saved)
-                authenticated = true
-                await refresh()
-            } catch {
-                authenticated = false
-                errorMessage = error.localizedDescription
-            }
+            Task { @MainActor [weak self] in await self?.restoreSavedSession(saved) }
         }
-        isLoading = false
     }
 
     func login() async {
@@ -69,6 +69,31 @@ final class AppModel: ObservableObject {
             today = try await api.today()
             await syncUploads()
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func handleSceneActive() async {
+        localRecordings = localStore.load()
+        if let warning = localStore.lastLoadWarning { errorMessage = warning }
+        guard !isRestoringSession else { return }
+        if !authenticated, let saved = keychain.password() {
+            await restoreSavedSession(saved)
+            return
+        }
+        await refresh()
+    }
+
+    private func restoreSavedSession(_ saved: String) async {
+        guard !isRestoringSession else { return }
+        isRestoringSession = true
+        defer { isRestoringSession = false }
+        do {
+            try await api.login(password: saved)
+            authenticated = true
+            await refresh()
+        } catch {
+            authenticated = false
+            errorMessage = "The server is unavailable. Local recordings remain available and will sync when you reconnect."
+        }
     }
 
     func saveFinishedRecording(_ recording: LocalRecording) {

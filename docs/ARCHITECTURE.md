@@ -6,8 +6,8 @@ Memory Garden is a recording-first, single-user TypeScript application with a Re
 
 - `apps/web`: responsive React UI. It talks to the REST API and never owns source data.
 - `apps/ios`: SwiftUI native capture client. It owns local audio durability, Keychain auth, upload retry state, playback, and mobile browsing; it does not contain AI provider credentials or processing logic.
-- `apps/api/src/server.ts`: authenticated REST API for login, recording/capture, transcript correction, browsing, search, Ask, source detail, retry, export, and deletion.
-- `apps/api/src/processor.ts`: persistent-job-compatible pipeline. It transcribes voice when configured, stores transcript segments, chunks text, asks an AI provider for structured interpretation, and writes evidence-linked memories. It is safe to run in-process for local development or through `worker.ts` for a separate worker container.
+- `apps/api/src/app.ts` and `apps/api/src/server.ts`: authenticated REST API factory and small process entry point for login, recording/capture, transcript correction, browsing, search, Ask, source detail, retry, export, and deletion.
+- `apps/api/src/jobs.ts` and `apps/api/src/processor.ts`: one-writer persisted scheduler and processing pipeline. Jobs recover stale leases, retry with bounded attempts, preserve transcripts on analysis failure, and write evidence-linked memories plus the optional meeting brief.
 - `apps/api/src/db.ts`: storage repository. The default backend is an atomic JSON document in `storage/memory-garden.json`, with `storage/uploads/` for private audio and files. The narrow repository interface is ready for a PostgreSQL/Drizzle adapter later.
 
 ## Voice data model
@@ -23,6 +23,10 @@ Conversation and meeting modes require an explicit consent acknowledgement in th
 Native uploads include a durable client recording UUID in multipart form data. The API stores it in source metadata and returns the existing Source when the same UUID is retried, preventing duplicate backend records.
 - `storage/uploads`: private uploaded files; they are only served through an authenticated source route.
 
+The iOS client stores relative audio filenames and a versioned manifest in Application Support/MemoryGarden, with an atomic primary index and last-known-good backup. Launch reconciliation keeps missing metadata visible and imports UUID-named orphan audio as recovered recordings.
+
+Meeting-mode Sources optionally carry `meetingBrief` with summary, key points, decisions, action items, follow-ups, unresolved questions, confidence, claim state, and transcript evidence. Legacy Memories/Open Loops remain as a compatibility projection for the web client.
+
 ## Retrieval and provenance
 
 The MVP uses hybrid-style local keyword scoring over transcript text, memory content, summaries, and source titles. Each result carries its `sourceId`; Ask returns citations with segment offsets and quotes that open the source drawer and can seek the audio. Segment timestamps are the initial citation contract. Word timestamps are persisted on each transcript segment for future transcript-following and word-level search, but are not yet used by the UI.
@@ -35,7 +39,7 @@ Long recordings are measured against `TRANSCRIPTION_MAX_MB` and `TRANSCRIPTION_C
 
 Decision memories from newer captures can mark older same-project decisions with `supersededBy`. Older sources are retained and shown as potentially outdated, so history remains inspectable.
 
-Reprocessing clears only derived records for the source, then rebuilds them from the preserved transcript/audio. A manually corrected transcript is therefore the durable input for the next pass.
+Reprocessing clears only derived records for the source, then rebuilds them from the preserved transcript/audio. A manually corrected transcript is therefore the durable input for the next pass. Processing runs in the API process; `apps/api/src/worker.ts` is a deprecated guard and is not part of Compose.
 
 ## Security boundary
 

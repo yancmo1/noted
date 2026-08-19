@@ -22,6 +22,13 @@ targets:
       path: MemoryGarden/Resources/Info.plist
       properties:
         CFBundleDisplayName: Memory Garden
+        API_BASE_URL: $(API_BASE_URL)
+        NSMicrophoneUsageDescription: Memory Garden needs microphone access to save meeting audio on this iPhone.
+        NSLocalNetworkUsageDescription: Memory Garden connects to your local Memory Garden server to sync recordings.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UIBackgroundModes:
+          - audio
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -34,6 +41,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: false
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 9PHS626XUN
         CODE_SIGN_ENTITLEMENTS: MemoryGarden/Resources/MemoryGarden.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
   MemoryGardenTests:
@@ -48,6 +56,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.tests
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: 9PHS626XUN
   MemoryGardenUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -60,6 +70,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.uitests
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: 9PHS626XUN
 schemes:
   MemoryGarden:
     build:

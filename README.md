@@ -27,7 +27,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open http://localhost:8080. Uploaded files and the JSON store live in the `memory_data` volume. The compose stack contains API, worker, and Nginx web services; the API and worker share the same persistent store.
+Open http://localhost:8080. Uploaded files and the JSON store live in the `memory_data` volume. The compose stack contains one API writer and the Nginx web service; processing jobs are scheduled inside the API so the JSON repository cannot split into competing in-memory writers.
 
 ## Useful commands
 
@@ -49,6 +49,8 @@ Authenticated retrieval: `GET /api/today`, `/sources`, `/sources/:id`, `/recordi
 Authenticated correction: `PATCH /api/sources/:id`, `PATCH /api/recordings/:id/transcript`, `POST /api/sources/:id/reprocess`, `PATCH /api/memories/:id`, `PATCH /api/open-loops/:id`, and `DELETE /api/sources/:id`.
 
 Native voice uploads may include `clientRecordingId` and `client=native`; retries are idempotent and return the existing Source instead of creating a duplicate.
+
+The native client stores a draft manifest and audio in iOS Application Support before recording starts. It can open Meetings and Record while offline, then retries queued uploads when the app becomes active or connectivity returns.
 
 ## Data and backups
 

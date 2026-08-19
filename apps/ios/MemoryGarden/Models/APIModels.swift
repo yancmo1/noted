@@ -9,6 +9,46 @@ enum TranscriptStatus: String, Codable {
     case pending, processing, ready, partial, failed
 }
 
+enum ClaimState: String, Codable {
+    case generated, confirmed, edited
+}
+
+struct InferredValue: Codable, Hashable {
+    let value: String
+    let confidence: Double
+    let state: ClaimState
+}
+
+struct MeetingClaim: Codable, Identifiable, Hashable {
+    let id: String
+    let text: String
+    let confidence: Double
+    let state: ClaimState
+    let evidenceRefs: [EvidenceRef]
+}
+
+struct MeetingActionItem: Codable, Identifiable, Hashable {
+    let id: String
+    let text: String
+    let confidence: Double
+    let state: ClaimState
+    let evidenceRefs: [EvidenceRef]
+    let owner: InferredValue?
+    let dueAt: InferredValue?
+    var status: String
+}
+
+struct MeetingBrief: Codable, Hashable {
+    let schemaVersion: Int
+    let generatedAt: String
+    let summary: String
+    let keyPoints: [MeetingClaim]
+    let decisions: [MeetingClaim]
+    var actionItems: [MeetingActionItem]
+    let suggestedFollowUps: [MeetingClaim]
+    let unresolvedQuestions: [MeetingClaim]
+}
+
 struct Source: Codable, Identifiable, Hashable {
     let id: String
     let type: String
@@ -28,11 +68,13 @@ struct Source: Codable, Identifiable, Hashable {
     let consentMode: String?
     let recordingSessionId: String?
     let metadata: [String: String]
+    let meetingBrief: MeetingBrief?
 
     enum CodingKeys: String, CodingKey {
         case id, type, title, originalText, extractedText, createdAt, updatedAt, capturedAt
         case processingStatus, processingError, summary, transcriptText, transcriptStatus
         case durationMs, audioMimeType, consentMode, recordingSessionId, metadata
+        case meetingBrief
     }
 
     init(from decoder: Decoder) throws {
@@ -55,6 +97,7 @@ struct Source: Codable, Identifiable, Hashable {
         consentMode = try c.decodeIfPresent(String.self, forKey: .consentMode)
         recordingSessionId = try c.decodeIfPresent(String.self, forKey: .recordingSessionId)
         metadata = (try? c.decode([String: String].self, forKey: .metadata)) ?? [:]
+        meetingBrief = try c.decodeIfPresent(MeetingBrief.self, forKey: .meetingBrief)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -67,6 +110,7 @@ struct Source: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(transcriptStatus, forKey: .transcriptStatus); try c.encodeIfPresent(durationMs, forKey: .durationMs)
         try c.encodeIfPresent(audioMimeType, forKey: .audioMimeType); try c.encodeIfPresent(consentMode, forKey: .consentMode)
         try c.encodeIfPresent(recordingSessionId, forKey: .recordingSessionId); try c.encode(metadata, forKey: .metadata)
+        try c.encodeIfPresent(meetingBrief, forKey: .meetingBrief)
     }
 }
 
@@ -170,21 +214,25 @@ struct AskResponse: Codable {
     let citations: [Citation]
 }
 
-enum LocalRecordingState: String, Codable, CaseIterable {
-    case recording, paused, localOnly, queued, uploading, uploaded, processing, ready, partial, failed
+enum LocalRecordingState: String, Codable, CaseIterable, Hashable {
+    case draft, recording, paused, interrupted, recovering, localOnly, queued, uploading, uploaded, processing, ready, partial, failed, missingFile
 
     var title: String {
         switch self {
+        case .draft: "Preparing"
         case .recording: "Recording"
         case .paused: "Paused"
+        case .interrupted: "Interrupted"
+        case .recovering: "Recovered"
         case .localOnly: "On Device"
-        case .queued: "Queued"
+        case .queued: "Waiting for Connection"
         case .uploading: "Uploading"
         case .uploaded: "Uploaded"
         case .processing: "Processing"
         case .ready: "Ready"
         case .partial: "Partial"
-        case .failed: "Failed"
+        case .failed: "Needs Retry"
+        case .missingFile: "Missing Audio"
         }
     }
 }
@@ -196,9 +244,13 @@ struct LocalBookmark: Codable, Identifiable, Hashable {
 }
 
 struct LocalRecording: Codable, Identifiable, Hashable {
+    static let currentSchemaVersion = 2
+
     let id: UUID
     var localFileURL: URL
+    var fileName: String
     var createdAt: Date
+    var finalizedAt: Date?
     var duration: TimeInterval
     var title: String
     var state: LocalRecordingState
@@ -208,6 +260,93 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var bookmarks: [LocalBookmark]
     var lastError: String?
     var consentMode: String
+    var consentAcknowledged: Bool
+    var nextRetryAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, fileName, legacyLocalFileURL = "localFileURL", createdAt, finalizedAt, duration, title, state
+        case uploadAttempts, nextRetryAt, serverSourceId, byteSize, bookmarks, lastError, consentMode
+        case consentAcknowledgedKey = "consentAcknowledged"
+    }
+
+    init(
+        id: UUID,
+        localFileURL: URL,
+        createdAt: Date,
+        duration: TimeInterval,
+        title: String,
+        state: LocalRecordingState,
+        uploadAttempts: Int,
+        serverSourceId: String?,
+        byteSize: Int64,
+        bookmarks: [LocalBookmark],
+        lastError: String?,
+        consentMode: String,
+        consentAcknowledged: Bool = false,
+        finalizedAt: Date? = nil,
+        nextRetryAt: Date? = nil
+    ) {
+        self.id = id
+        self.localFileURL = localFileURL
+        self.fileName = localFileURL.lastPathComponent
+        self.createdAt = createdAt
+        self.finalizedAt = finalizedAt
+        self.duration = duration
+        self.title = title
+        self.state = state
+        self.uploadAttempts = uploadAttempts
+        self.serverSourceId = serverSourceId
+        self.byteSize = byteSize
+        self.bookmarks = bookmarks
+        self.lastError = lastError
+        self.consentMode = consentMode
+        self.consentAcknowledged = consentAcknowledged
+        self.nextRetryAt = nextRetryAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        let storedFileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+        let legacyURL = try container.decodeIfPresent(URL.self, forKey: .legacyLocalFileURL)
+        fileName = storedFileName ?? legacyURL?.lastPathComponent ?? "\(id.uuidString).m4a"
+        localFileURL = legacyURL ?? URL(fileURLWithPath: fileName)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        finalizedAt = try container.decodeIfPresent(Date.self, forKey: .finalizedAt)
+        duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "Untitled Recording"
+        state = try container.decodeIfPresent(LocalRecordingState.self, forKey: .state) ?? .localOnly
+        uploadAttempts = try container.decodeIfPresent(Int.self, forKey: .uploadAttempts) ?? 0
+        serverSourceId = try container.decodeIfPresent(String.self, forKey: .serverSourceId)
+        byteSize = try container.decodeIfPresent(Int64.self, forKey: .byteSize) ?? 0
+        bookmarks = try container.decodeIfPresent([LocalBookmark].self, forKey: .bookmarks) ?? []
+        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+        consentMode = try container.decodeIfPresent(String.self, forKey: .consentMode) ?? "private_thought"
+        let consentKey = CodingKeys(rawValue: "consentAcknowledged")!
+        let decodedConsent: Swift.Bool? = try? container.decodeIfPresent(Swift.Bool.self, forKey: consentKey)
+        consentAcknowledged = decodedConsent ?? (consentMode == "private_thought")
+        nextRetryAt = try container.decodeIfPresent(Date.self, forKey: .nextRetryAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(fileName.isEmpty ? localFileURL.lastPathComponent : fileName, forKey: .fileName)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(finalizedAt, forKey: .finalizedAt)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(title, forKey: .title)
+        try container.encode(state, forKey: .state)
+        try container.encode(uploadAttempts, forKey: .uploadAttempts)
+        try container.encodeIfPresent(nextRetryAt, forKey: .nextRetryAt)
+        try container.encodeIfPresent(serverSourceId, forKey: .serverSourceId)
+        try container.encode(byteSize, forKey: .byteSize)
+        try container.encode(bookmarks, forKey: .bookmarks)
+        try container.encodeIfPresent(lastError, forKey: .lastError)
+        try container.encode(consentMode, forKey: .consentMode)
+        try container.encode(consentAcknowledged, forKey: .consentAcknowledgedKey)
+    }
 
     var durationLabel: String {
         let total = Int(duration.rounded())

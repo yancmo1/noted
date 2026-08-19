@@ -3,12 +3,17 @@ import SwiftUI
 @main
 struct MemoryGardenApp: App {
     @StateObject private var model = AppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(model)
                 .task { await model.launch() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await model.handleSceneActive() }
         }
     }
 }
@@ -19,8 +24,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if model.isLoading { ProgressView("Opening Memory Garden…") }
-            else if model.authenticated { MainTabView() }
-            else { LoginView() }
+            else { MainTabView() }
         }
         .tint(.indigo)
     }
@@ -63,13 +67,32 @@ struct LoginView: View {
 }
 
 struct MainTabView: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
         TabView {
-            TodayView().tabItem { Label("Today", systemImage: "sun.max") }
+            MeetingsView().tabItem { Label("Meetings", systemImage: "waveform") }
             RecordView().tabItem { Label("Record", systemImage: "record.circle") }
-            RecordingsView().tabItem { Label("Recordings", systemImage: "waveform") }
-            AskView().tabItem { Label("Ask", systemImage: "sparkles") }
             SettingsView().tabItem { Label("More", systemImage: "ellipsis.circle") }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if model.audioRecorder.state == .recording || model.audioRecorder.state == .paused || model.audioRecorder.state == .interrupted {
+                HStack(spacing: AppSpacing.sm) {
+                    Image(systemName: "record.circle.fill")
+                    Text("Recording · (timeLabel(model.audioRecorder.elapsed))")
+                        .monospacedDigit()
+                    Spacer()
+                    Text(model.audioRecorder.state == .paused ? "Paused" : "Active")
+                        .font(.caption.bold())
+                }
+                .font(.subheadline.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, AppSpacing.screen)
+                .padding(.vertical, AppSpacing.xs)
+                .background(.red)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Recording in progress, (timeLabel(model.audioRecorder.elapsed))")
+            }
         }
     }
 }

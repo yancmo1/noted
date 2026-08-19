@@ -5,6 +5,7 @@ final class MemoryGardenUITests: XCTestCase {
     func testLaunchShowsMemoryGardenEntryPoint() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.staticTexts["Memory Garden"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["Meetings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Record"].exists)
     }
 }

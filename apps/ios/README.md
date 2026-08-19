@@ -37,7 +37,7 @@ The current workspace `.env` sets the password to `memory`. If `AUTH_PASSWORD` i
 - Recordings are written to Application Support before upload.
 - Uploads retain the local file until the API acknowledges the Source.
 - A client recording UUID makes retries idempotent.
-- Failed/offline uploads remain queued and are retried when the app becomes active.
+- Failed/offline uploads remain queued and are retried when the app becomes active or network reachability returns. A stale recording draft is surfaced as Recovered instead of being hidden.
 - Audio uses M4A/AAC at 44.1 kHz mono and the audio background mode is enabled.
 - Mark Moments are persisted locally and shown on playback.
 
@@ -51,4 +51,4 @@ The current workspace `.env` sets the password to `memory`. If `AUTH_PASSWORD` i
 6. Restore network and verify exactly one server Source is created.
 7. Open the recording, tap transcript/evidence timestamps, and verify seeking.
 
-Physical-device and signing validation must be completed in Xcode with an Apple development team. The project does not commit signing credentials.
+The current build has been signed, installed, and launched on `yPhone` with team `9PHS626XUN`. The project does not commit signing credentials. Complete the hands-on microphone, lock-screen/background, interruption, airplane-mode, and LAN processing checklist before calling the release gate complete.
