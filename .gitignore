@@ -1,0 +1,14 @@
+node_modules
+dist
+storage/*.db
+storage/memory-garden.json
+storage/uploads
+.env
+.DS_Store
+*.tsbuildinfo
+**/xcuserdata/
+*.xcuserstate
+.swiftpm/
+DerivedData/
+*.xcarchive
+storage/uploads/incoming

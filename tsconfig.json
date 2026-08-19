@@ -1,0 +1,5 @@
+{
+  "files": [],
+  "references": [{"path":"./tsconfig.api.json"},{"path":"./tsconfig.web.json"}],
+  "compilerOptions": {"strict":true,"skipLibCheck":true,"noEmit":true}
+}

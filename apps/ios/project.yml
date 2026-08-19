@@ -1,0 +1,73 @@
+name: MemoryGarden
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  bundleIdPrefix: com.memorygarden
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+targets:
+  MemoryGarden:
+    type: application
+    platform: iOS
+    sources:
+      - path: MemoryGarden
+    resources:
+      - path: MemoryGarden/Resources/Assets.xcassets
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    info:
+      path: MemoryGarden/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Memory Garden
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios
+        PRODUCT_NAME: MemoryGarden
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: false
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MemoryGarden/Resources/MemoryGarden.entitlements
+        SWIFT_STRICT_CONCURRENCY: complete
+  MemoryGardenTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MemoryGardenTests
+    dependencies:
+      - target: MemoryGarden
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.tests
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+  MemoryGardenUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MemoryGardenUITests
+    dependencies:
+      - target: MemoryGarden
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.uitests
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+schemes:
+  MemoryGarden:
+    build:
+      targets:
+        MemoryGarden: all
+        MemoryGardenTests: [test]
+        MemoryGardenUITests: [test]
+    test:
+      targets:
+        - name: MemoryGardenTests
+        - name: MemoryGardenUITests

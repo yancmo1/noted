@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    environment:
+      DATA_DIR: /app/storage
+    volumes:
+      - memory_data:/app/storage
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3333/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    environment:
+      DATA_DIR: /app/storage
+    command: ["node", "apps/api/dist/worker.js"]
+    volumes:
+      - memory_data:/app/storage
+    depends_on:
+      api:
+        condition: service_healthy
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  memory_data:

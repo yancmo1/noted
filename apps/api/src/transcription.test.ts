@@ -1,0 +1,13 @@
+import { describe,expect,it } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
+import type { TranscriptionProvider } from "./ai.js";
+import { config } from "./config.js";
+import { mergeTranscriptionResults, transcribeWithChunking } from "./transcription.js";
+
+function silentWav(durationSeconds:number){const sampleRate=8000;const samples=sampleRate*durationSeconds;const dataSize=samples*2;const buffer=Buffer.alloc(44+dataSize);buffer.write("RIFF",0);buffer.writeUInt32LE(36+dataSize,4);buffer.write("WAVE",8);buffer.write("fmt ",12);buffer.writeUInt32LE(16,16);buffer.writeUInt16LE(1,20);buffer.writeUInt16LE(1,22);buffer.writeUInt32LE(sampleRate,24);buffer.writeUInt32LE(sampleRate*2,28);buffer.writeUInt16LE(2,32);buffer.writeUInt16LE(16,34);buffer.write("data",36);buffer.writeUInt32LE(dataSize,40);return buffer;}
+
+describe("transcription chunking",()=>{
+  it("offsets segment and word timestamps while retaining chunk provenance",()=>{const merged=mergeTranscriptionResults([{offsetMs:0,chunkIndex:0,result:{text:"first",segments:[{startMs:100,endMs:900,text:"first",words:[{word:"first",startMs:100,endMs:500}]}]}},{offsetMs:1000,chunkIndex:1,result:{text:"second",segments:[{startMs:100,endMs:800,text:"second",words:[{word:"second",startMs:100,endMs:700}]}]}}]);expect(merged.text).toBe("first second");expect(merged.segments[1].startMs).toBe(1100);expect(merged.segments[1].endMs).toBe(1800);expect(merged.segments[1].chunkIndex).toBe(1);expect(merged.segments[1].chunkStartMs).toBe(1000);expect(merged.segments[1].words?.[0].startMs).toBe(1100);});
+  it("splits an oversized-duration recording and merges provider results",async()=>{const filePath=path.join(config.dataDir,"uploads","chunking-test.wav");await fs.writeFile(filePath,silentWav(60));const seen:string[]=[];const provider:TranscriptionProvider={async transcribe(input){seen.push(path.basename(input.filePath));const isSecond=seen.length===2;return {text:isSecond?"second chunk":"first chunk",segments:[{startMs:100,endMs:800,text:isSecond?"second chunk":"first chunk",words:[{word:isSecond?"second":"first",startMs:100,endMs:500}] }]};}};try{const result=await transcribeWithChunking(provider,{filePath,sourceId:"chunking-test",mimeType:"audio/wav",durationMs:60_000},{chunkSeconds:1,maxBytes:2*1024*1024});expect(seen).toHaveLength(2);expect(result.text).toBe("first chunk second chunk");expect(result.segments[1].startMs).toBe(30_100);expect(result.segments[1].chunkIndex).toBe(1);expect(result.segments[1].words?.[0].startMs).toBe(30_100);}finally{await fs.rm(filePath,{force:true});}});
+});
