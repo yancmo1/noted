@@ -1,5 +1,12 @@
 {
-  "images" : [],
+  "images" : [
+    {
+      "filename" : "noted-app-icon.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    }
+  ],
   "info" : {
     "author" : "xcode",
     "version" : 1

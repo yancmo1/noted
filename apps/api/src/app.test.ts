@@ -3,15 +3,37 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { store } from "./db.js";
 
-function multipartBody(boundary: string, fields: Record<string, string>, file: Buffer) {
+function multipartBody(boundary: string, fields: Record<string, string>, file: Buffer, filename = "meeting.wav", mimeType = "audio/wav") {
   const chunks: Buffer[] = [];
   for (const [name, value] of Object.entries(fields)) {
     chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
   }
-  chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="meeting.m4a"\r\nContent-Type: audio/mp4\r\n\r\n`));
+  chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
   chunks.push(file);
   chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
   return Buffer.concat(chunks);
+}
+
+function silentWav(durationMs = 1_200) {
+  const sampleRate = 8_000;
+  const channels = 1;
+  const bitsPerSample = 16;
+  const dataSize = Math.max(1, Math.round(sampleRate * durationMs / 1000) * channels * bitsPerSample / 8);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * bitsPerSample / 8, 28);
+  header.writeUInt16LE(channels * bitsPerSample / 8, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, Buffer.alloc(dataSize)]);
 }
 
 describe("API meeting capture contract", () => {
@@ -56,7 +78,7 @@ describe("API meeting capture contract", () => {
       startedAt: "2026-08-19T12:00:00.000Z",
       endedAt: "2026-08-19T12:00:01.200Z",
       client: "native",
-    }, Buffer.from("test-audio"));
+    }, silentWav());
     const headers = { cookie, "content-type": `multipart/form-data; boundary=${boundary}` };
     const first = await app.inject({ method: "POST", url: "/api/capture/voice", headers, payload });
     expect(first.statusCode).toBe(200);
@@ -74,6 +96,45 @@ describe("API meeting capture contract", () => {
 
     const range = await app.inject({ method: "GET", url: `/files/${firstBody.id}`, headers: { cookie, range: "bytes=0-3" } });
     expect(range.statusCode).toBe(206);
-    expect(range.body).toBe("test");
+    expect(range.body).toBe("RIFF");
+  });
+
+  it("rejects incomplete M4A uploads without creating a source", async () => {
+    const boundary = "memory-garden-invalid-audio-boundary";
+    const clientRecordingId = "invalid-moov-recording";
+    const payload = multipartBody(boundary, {
+      title: "Corrupt recording",
+      clientRecordingId,
+      consentMode: "private_thought",
+      consentAcknowledged: "true",
+      durationMs: "1200",
+      startedAt: "2026-08-19T12:00:00.000Z",
+      endedAt: "2026-08-19T12:00:01.200Z",
+      client: "native",
+    }, Buffer.from("this is not an m4a"), "broken.m4a", "audio/mp4");
+    const response = await app.inject({ method: "POST", url: "/api/capture/voice", headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` }, payload });
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ error: string }>().error).toMatch(/complete playable file/i);
+    expect(store.findSourceByClientRecordingId(clientRecordingId)).toBeUndefined();
+  });
+
+  it("accepts a structurally valid audio fixture and uses its probed duration", async () => {
+    const boundary = "memory-garden-valid-audio-boundary";
+    const clientRecordingId = "valid-probed-duration-recording";
+    const payload = multipartBody(boundary, {
+      title: "Valid recording",
+      clientRecordingId,
+      consentMode: "private_thought",
+      consentAcknowledged: "true",
+      durationMs: "999999",
+      startedAt: "2026-08-19T12:00:00.000Z",
+      endedAt: "2026-08-19T12:00:01.200Z",
+      client: "native",
+    }, silentWav(1200));
+    const response = await app.inject({ method: "POST", url: "/api/capture/voice", headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` }, payload });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ id: string; durationMs?: number }>();
+    createdSourceIDs.push(body.id);
+    expect(body.durationMs).toBe(1200);
   });
 });

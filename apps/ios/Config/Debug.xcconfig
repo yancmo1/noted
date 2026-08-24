@@ -1,1 +1,3 @@
-API_BASE_URL = http:/$()/127.0.0.1:3333
+// Editable development endpoint. The default reaches the Mac over Tailscale.
+// Change only the address when using another Mac, LAN, or local simulator setup.
+API_BASE_URL = http:/$()/100.122.189.114:3333

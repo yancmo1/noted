@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Memory Garden</string>
+	<string>Noted</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -28,9 +28,9 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Memory Garden connects to your local Memory Garden server to sync recordings.</string>
+	<string>Noted connects to your local Noted server to sync recordings.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Memory Garden needs microphone access to save meeting audio on this iPhone.</string>
+	<string>Noted needs microphone access to save meeting audio on this iPhone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

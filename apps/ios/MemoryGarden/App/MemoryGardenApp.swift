@@ -23,10 +23,10 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if model.isLoading { ProgressView("Opening Memory Garden…") }
+            if model.isLoading { ProgressView("Opening Noted…") }
             else { MainTabView() }
         }
-        .tint(.indigo)
+        .tint(Color.notedPrimary)
     }
 }
 
@@ -38,9 +38,9 @@ struct LoginView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        Image(systemName: "leaf.circle.fill").font(.system(size: 54)).foregroundStyle(.indigo)
-                        Text("Memory Garden").font(.largeTitle.bold())
-                        Text("Capture first. Your garden will take care of the remembering.").foregroundStyle(.secondary)
+                        Image(systemName: "note.text").font(.largeTitle).foregroundStyle(Color.notedPrimary)
+                        Text("Noted").font(.largeTitle.bold())
+                        Text("Capture first. Noted will take care of the remembering.").foregroundStyle(.secondary)
                     }.padding(.vertical, 18)
                 }
                 Section("Local server password") {
@@ -54,12 +54,12 @@ struct LoginView: View {
                                 Text("Connecting…")
                             }
                         } else {
-                            Text("Open Memory Garden")
+                            Text("Open Noted")
                         }
                     }
                     .disabled(model.password.isEmpty || model.isLoggingIn)
                 }
-                if let error = model.errorMessage { Section { Text(error).foregroundStyle(.red) } }
+                if let error = model.errorMessage { Section { Text(error).foregroundStyle(.red).accessibilityAddTraits(.isStaticText) } }
             }
             .navigationTitle("Welcome")
         }
@@ -73,26 +73,60 @@ struct MainTabView: View {
         TabView {
             MeetingsView().tabItem { Label("Meetings", systemImage: "waveform") }
             RecordView().tabItem { Label("Record", systemImage: "record.circle") }
-            SettingsView().tabItem { Label("More", systemImage: "ellipsis.circle") }
+            SettingsView().tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.audioRecorder.state == .recording || model.audioRecorder.state == .paused || model.audioRecorder.state == .interrupted {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "record.circle.fill")
-                    Text("Recording · (timeLabel(model.audioRecorder.elapsed))")
-                        .monospacedDigit()
-                    Spacer()
-                    Text(model.audioRecorder.state == .paused ? "Paused" : "Active")
-                        .font(.caption.bold())
-                }
-                .font(.subheadline.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, AppSpacing.screen)
-                .padding(.vertical, AppSpacing.xs)
-                .background(.red)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Recording in progress, (timeLabel(model.audioRecorder.elapsed))")
+            RecordingStatusBanner(recorder: model.audioRecorder)
+        }
+    }
+}
+
+struct RecordingStatusBanner: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    private var isActive: Bool {
+        recorder.state == .recording || recorder.state == .paused || recorder.state == .interrupted
+    }
+
+    var body: some View {
+        if isActive {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: stateIcon)
+                Text("Recording · \(timeLabel(recorder.elapsed))").monospacedDigit()
+                Spacer()
+                Text(stateLabel).font(.caption.bold())
             }
+            .font(.subheadline.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, AppSpacing.screen)
+            .padding(.vertical, AppSpacing.xs)
+            .background(statusColor)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Recording \(stateLabel.lowercased()), \(timeLabel(recorder.elapsed))")
+            .accessibilityIdentifier("recording-status-banner")
+        }
+    }
+
+    private var stateLabel: String {
+        switch recorder.state {
+        case .paused: "Paused"
+        case .interrupted: "Interrupted"
+        default: "Active"
+        }
+    }
+
+    private var stateIcon: String {
+        switch recorder.state {
+        case .paused: "pause.circle.fill"
+        case .interrupted: "exclamationmark.triangle.fill"
+        default: "record.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch recorder.state {
+        case .paused, .interrupted: Color.notedAttention
+        default: Color.notedRecording
         }
     }
 }

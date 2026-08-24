@@ -1,6 +1,6 @@
-# Memory Garden architecture
+# Noted architecture
 
-Memory Garden is a recording-first, single-user TypeScript application with a React/Vite frontend and Fastify API. Every capture is persisted before interpretation. Voice captures preserve the original audio, recording metadata, transcript segments, and derived memories as separate layers so a missing provider never destroys the source.
+Noted is a recording-first, single-user TypeScript application with a React/Vite frontend and Fastify API. Every capture is persisted before interpretation. Voice captures preserve the original audio, recording metadata, transcript segments, and derived memories as separate layers so a missing provider never destroys the source.
 
 ## Runtime pieces
 

@@ -12,8 +12,10 @@ struct SettingsView: View {
                     LabeledContent("Server", value: model.api.baseURL.absoluteString)
                     LabeledContent("Local recordings", value: "\(model.localRecordings.count)")
                     if model.authenticated {
-                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                        Button { Task { await model.syncUploads() } } label: { Label("Retry pending uploads", systemImage: "arrow.up.circle") }
+                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Color.notedSuccess)
+                        Label("Send recordings individually from Meetings.", systemImage: "hand.tap")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     } else {
                         Label("Offline capture is available. Connect to upload and process meetings.", systemImage: "wifi.slash").foregroundStyle(.secondary)
                         SecureField("Server password", text: $connectionPassword)
@@ -23,11 +25,18 @@ struct SettingsView: View {
                         }
                         .disabled(connectionPassword.isEmpty || model.isLoggingIn)
                     }
-                    if let error = model.errorMessage { Text(error).font(.footnote).foregroundStyle(.orange) }
+                    if model.isLoggingIn { ProgressView("Connecting…") }
+                    if let error = model.errorMessage { Text(error).font(.footnote).foregroundStyle(Color.notedAttention).accessibilityAddTraits(.isStaticText) }
                 }
-                Section("Privacy") { Label("Audio stays on this iPhone until upload is confirmed.", systemImage: "lock.shield"); Label("Authentication password is stored in Keychain.", systemImage: "key.fill"); Text("Recording conversations and meetings may be subject to laws and workplace policies. You are responsible for obtaining permission where required.").font(.footnote).foregroundStyle(.secondary) }
+                Section("Provider monitoring") {
+                    Link(destination: URL(string: "https://console.groq.com/home")!) {
+                        Label("Open Groq usage dashboard", systemImage: "chart.bar.xaxis")
+                    }
+                    Text("Monitor Groq transcription and analysis usage.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Privacy") { Label("Audio stays on this iPhone until you send that recording and upload is confirmed.", systemImage: "lock.shield"); Label("Authentication password is stored in Keychain.", systemImage: "key.fill"); Text("Recording conversations and meetings may be subject to laws and workplace policies. You are responsible for obtaining permission where required.").font(.footnote).foregroundStyle(.secondary) }
                 Section("App") { LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Development"); LabeledContent("Audio", value: "M4A / AAC · 44.1 kHz mono"); Button("Log out", role: .destructive) { showLogout = true } }
-            }.navigationTitle("More").confirmationDialog("Log out of Memory Garden?", isPresented: $showLogout) { Button("Log out", role: .destructive) { Task { await model.logout() } } }
+            }.navigationTitle("Settings").confirmationDialog("Log out of Noted?", isPresented: $showLogout) { Button("Log out", role: .destructive) { Task { await model.logout() } } }
         }
     }
 }

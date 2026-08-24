@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "noted",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "noted.shepswork.com", "custom_domain": true }
+  ],
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "noted-db",
+      "database_id": "6d3e32f3-6bee-4929-b450-91c7f28cafab",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "AUDIO_BUCKET", "bucket_name": "noted-audio" }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "PROCESSING_QUEUE", "queue": "noted-processing" }
+    ],
+    "consumers": [
+      {
+        "queue": "noted-processing",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "noted-processing-dlq"
+      }
+    ]
+  },
+  "assets": {
+    "directory": "../dist/web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/files/*"]
+  },
+  "vars": {
+    "LLM_MODEL": "openai/gpt-oss-120b",
+    "TRANSCRIPTION_MODEL": "whisper-large-v3-turbo",
+    "R2_BUCKET": "noted-audio"
+  }
+}

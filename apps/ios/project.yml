@@ -21,10 +21,10 @@ targets:
     info:
       path: MemoryGarden/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Memory Garden
+        CFBundleDisplayName: Noted
         API_BASE_URL: $(API_BASE_URL)
-        NSMicrophoneUsageDescription: Memory Garden needs microphone access to save meeting audio on this iPhone.
-        NSLocalNetworkUsageDescription: Memory Garden connects to your local Memory Garden server to sync recordings.
+        NSMicrophoneUsageDescription: Noted needs microphone access to save meeting audio on this iPhone.
+        NSLocalNetworkUsageDescription: Noted connects to your local Noted server to sync recordings.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         UIBackgroundModes:

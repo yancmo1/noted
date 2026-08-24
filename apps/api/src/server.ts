@@ -15,4 +15,4 @@ process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
 await app.listen({ port: config.port, host: "0.0.0.0" });
-app.log.info(`Memory Garden API listening on ${config.port}`);
+app.log.info(`Noted API listening on ${config.port}`);

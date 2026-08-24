@@ -9,7 +9,7 @@ export const config = {
   authPassword: process.env.AUTH_PASSWORD ?? "memory",
   llmMode: env("LLM_MODE", env("AI_MODE", (process.env.LLM_API_KEY || process.env.AI_API_KEY) ? "real" : "mock")),
   llmBaseUrl: env("LLM_BASE_URL", env("AI_BASE_URL")),
-  llmApiKey: env("LLM_API_KEY", env("AI_API_KEY")),
+  llmApiKey: env("LLM_API_KEY", env("AI_API_KEY", process.env.TRANSCRIPTION_API_KEY)),
   llmModel: env("LLM_MODEL", env("AI_MODEL")),
   transcriptionProvider: env("TRANSCRIPTION_PROVIDER", "groq"),
   transcriptionMode: env("TRANSCRIPTION_MODE", (process.env.TRANSCRIPTION_API_KEY || legacyWhisperConfigured) ? "real" : "disabled"),

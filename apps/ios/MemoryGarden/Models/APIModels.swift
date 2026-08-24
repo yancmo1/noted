@@ -215,7 +215,7 @@ struct AskResponse: Codable {
 }
 
 enum LocalRecordingState: String, Codable, CaseIterable, Hashable {
-    case draft, recording, paused, interrupted, recovering, localOnly, queued, uploading, uploaded, processing, ready, partial, failed, missingFile
+    case draft, recording, paused, interrupted, recovering, localOnly, queued, uploading, uploaded, processing, ready, partial, failed, needsRepair, missingFile
 
     var title: String {
         switch self {
@@ -232,6 +232,7 @@ enum LocalRecordingState: String, Codable, CaseIterable, Hashable {
         case .ready: "Ready"
         case .partial: "Partial"
         case .failed: "Needs Retry"
+        case .needsRepair: "Needs Repair"
         case .missingFile: "Missing Audio"
         }
     }

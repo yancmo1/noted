@@ -14,21 +14,29 @@ final class UploadManager: ObservableObject {
         self.store = store
     }
 
-    func sync(_ recordings: [LocalRecording], force: Bool = false) async -> [LocalRecording] {
+    func sync(_ recordings: [LocalRecording], recordingID: UUID) async -> [LocalRecording] {
         var updated = recordings
         for index in updated.indices {
+            guard updated[index].id == recordingID else { continue }
             let state = updated[index].state
             if state == .uploading {
                 updated[index].state = .queued
             }
             let retryable: Set<LocalRecordingState> = [.localOnly, .queued, .failed, .recovering]
             guard retryable.contains(updated[index].state) else { continue }
-            if !force, let nextRetryAt = updated[index].nextRetryAt, nextRetryAt > Date() { continue }
-            guard FileManager.default.fileExists(atPath: updated[index].localFileURL.path) else {
-                updated[index].state = .missingFile
-                updated[index].lastError = "The saved audio file is missing from this iPhone."
+            let resolvedURL = store.resolvedURL(for: updated[index])
+            do {
+                let validated = try LocalAudioValidator.validate(url: resolvedURL)
+                updated[index].duration = validated.duration
+                updated[index].byteSize = validated.byteSize
+            } catch {
+                let isMissing = (error as? LocalAudioValidationError) == .missing
+                updated[index].state = isMissing ? .missingFile : .needsRepair
+                updated[index].lastError = "Needs repair: \(error.localizedDescription)"
+                try? store.save(updated)
                 continue
             }
+            updated[index].localFileURL = resolvedURL
 
             let id = updated[index].id
             activeRecordingID = id

@@ -10,6 +10,7 @@ import { config } from "./config.js";
 import { store } from "./db.js";
 import { queueSource } from "./processor.js";
 import { aiProvider, transcriptionProvider } from "./ai.js";
+import { validateAudioFile } from "./audioValidation.js";
 import type { ConsentMode, LoopStatus, SourceType, TranscriptSegment } from "./types.js";
 
 type MultipartUpload = {
@@ -154,10 +155,19 @@ export async function buildApp(): Promise<FastifyInstance> {
         return reply.code(400).send({ error: "Native uploads require title, start/end timestamps, and duration" });
       }
 
+      let validatedAudio: { durationMs: number };
+      try {
+        validatedAudio = await validateAudioFile(upload.filePath);
+      } catch (error) {
+        await fsp.rm(upload.filePath, { force: true });
+        upload.filePath = "";
+        return reply.code(422).send({ error: error instanceof Error ? error.message : "Audio is not a complete playable file. Re-record and try again." });
+      }
+
       const id = crypto.randomUUID();
       const startedAt = String(field(upload.fields, "startedAt") ?? new Date().toISOString());
       const endedAt = String(field(upload.fields, "endedAt") ?? new Date().toISOString());
-      const durationMs = Number(field(upload.fields, "durationMs") ?? 0) || undefined;
+      const durationMs = validatedAudio.durationMs;
       const finalPath = path.join(config.dataDir, "uploads", `${id}-${safeFileName(upload.filename, "recording")}`);
       await fsp.rename(upload.filePath, finalPath);
       upload.filePath = "";

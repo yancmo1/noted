@@ -5,11 +5,11 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: "The Memory Garden server URL is invalid."
-        case .unauthorized: "The password was rejected, or the Memory Garden server is not accepting this session."
-        case let .server(code, message): "Memory Garden returned \(code): \(message)"
+        case .invalidURL: "The Noted server URL is invalid."
+        case .unauthorized: "The password was rejected, or the Noted server is not accepting this session."
+        case let .server(code, message): "Noted returned \(code): \(message)"
         case .invalidResponse: "The server returned an invalid response."
-        case let .decoding(error): "Memory Garden returned data this app could not read: \(error.localizedDescription)"
+        case let .decoding(error): "Noted returned data this app could not read: \(error.localizedDescription)"
         case let .offline(error): "The request could not be completed: \(error.localizedDescription)"
         }
     }
@@ -48,6 +48,10 @@ final class APIClient {
 
     func sourceBundle(id: String) async throws -> SourceBundle { try await send(path: "/api/sources/\(id)") }
 
+    func deleteSource(id: String) async throws {
+        let _: DeleteResponse = try await send(path: "/api/sources/\(id)", method: "DELETE")
+    }
+
     func recordingByClientID(_ clientRecordingID: UUID) async throws -> UploadResponse {
         try await send(path: "/api/recordings/by-client-id/\(clientRecordingID.uuidString)")
     }
@@ -59,7 +63,7 @@ final class APIClient {
     }
 
     func reprocess(sourceID: String) async throws {
-        let _: ReprocessResponse = try await send(path: "/api/sources/\(sourceID)/reprocess", method: "POST")
+        let _: ReprocessResponse = try await send(path: "/api/sources/\(sourceID)/reprocess", method: "POST", body: Data("{}".utf8))
     }
 
     func today() async throws -> TodayPayload { try await send(path: "/api/today") }
@@ -85,6 +89,11 @@ final class APIClient {
     }
 
     func uploadRecording(_ recording: LocalRecording, allowAuthRetry: Bool = true) async throws -> UploadResponse {
+        do {
+            return try await uploadRecordingDirectToR2(recording, allowAuthRetry: allowAuthRetry)
+        } catch APIError.server(404, _) {
+            // Keep the local Docker API compatible while Cloudflare is being rolled out.
+        }
         let boundary = "Boundary-\(UUID().uuidString)"
         let temporaryBody = FileManager.default.temporaryDirectory.appendingPathComponent("memory-garden-upload-\(recording.id.uuidString)")
         try writeMultipartBody(for: recording, boundary: boundary, to: temporaryBody)
@@ -100,6 +109,33 @@ final class APIClient {
                 return try await uploadRecording(recording, allowAuthRetry: false)
             }
         } catch let error as APIError { throw error } catch { throw APIError.offline(error) }
+    }
+
+    private func uploadRecordingDirectToR2(_ recording: LocalRecording, allowAuthRetry: Bool) async throws -> UploadResponse {
+        let requestBody = DirectUploadRequest(
+            title: recording.title,
+            clientRecordingId: recording.id.uuidString,
+            startedAt: ISO8601DateFormatter().string(from: recording.createdAt),
+            endedAt: ISO8601DateFormatter().string(from: recording.createdAt.addingTimeInterval(recording.duration)),
+            durationMs: Int(recording.duration * 1000),
+            mimeType: "audio/mp4",
+            consentMode: recording.consentMode,
+            consentAcknowledged: recording.consentAcknowledged
+        )
+        let prepared: DirectUploadResponse = try await send(path: "/api/recordings/upload-url", method: "POST", body: try JSONEncoder().encode(requestBody), allowAuthRetry: allowAuthRetry)
+        guard !prepared.deduplicated else {
+            return UploadResponse(id: prepared.source.id, processingStatus: prepared.source.processingStatus, recordingSession: nil, deduplicated: true)
+        }
+        guard let uploadURLValue = prepared.uploadURL, let uploadURL = URL(string: uploadURLValue) else { throw APIError.invalidURL }
+        var uploadRequest = URLRequest(url: uploadURL)
+        uploadRequest.httpMethod = "PUT"
+        uploadRequest.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+        let (_, uploadResponse) = try await session.upload(for: uploadRequest, fromFile: recording.localFileURL)
+        guard let http = uploadResponse as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? 0
+            throw APIError.server(status, "Cloudflare could not store the recording in R2.")
+        }
+        return try await send(path: "/api/recordings/\(prepared.source.id)/complete", method: "POST", body: Data("{}".utf8), allowAuthRetry: allowAuthRetry)
     }
 
     private func writeMultipartBody(for recording: LocalRecording, boundary: String, to destination: URL) throws {
@@ -153,3 +189,21 @@ struct AuthStatus: Codable { let authenticated: Bool }
 struct SourceListPayload: Codable { let sources: [Source] }
 struct TodayPayload: Codable { let openLoops: [OpenLoop]; let recent: [Source]; let resurfaced: [Memory]; let recordings: [Source]; let now: String }
 struct ReprocessResponse: Codable { let ok: Bool; let sourceId: String }
+struct DeleteResponse: Codable { let ok: Bool }
+
+private struct DirectUploadRequest: Encodable {
+    let title: String
+    let clientRecordingId: String
+    let startedAt: String
+    let endedAt: String
+    let durationMs: Int
+    let mimeType: String
+    let consentMode: String
+    let consentAcknowledged: Bool
+}
+
+private struct DirectUploadResponse: Decodable {
+    let source: Source
+    let deduplicated: Bool
+    let uploadURL: String?
+}

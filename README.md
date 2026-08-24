@@ -1,6 +1,6 @@
-# Memory Garden
+# Noted
 
-Memory Garden is a recording-first personal memory system. Press record, talk naturally, and keep the original audio alongside a searchable transcript, useful memories, open loops, and source-backed answers. Notes, links, and files remain available as secondary capture paths.
+Noted is a recording-first personal memory system. Press record, talk naturally, and keep the original audio alongside a searchable transcript, useful memories, open loops, and source-backed answers. Notes, links, and files remain available as secondary capture paths.
 
 The native iOS client lives in [`apps/ios`](</Users/yancyshepherd/Desktop/AUTONOMOUS_AGENT/apps/ios/README.md>). It is a local-first capture and playback client for this same API—not a second backend. The iPhone preserves recordings on-device, queues uploads, and opens timestamped transcript/evidence citations in native playback.
 
@@ -14,11 +14,17 @@ npm run dev
 
 Open http://localhost:5173. The default local password is `memory`.
 
-For a demo garden: `npm run seed`.
+For demo data: `npm run seed`.
 
 For long-recording chunking during local development, install `ffmpeg` and `ffprobe` (for example, `brew install ffmpeg` on macOS). The Docker API image includes them.
 
-The default reasoning mode is deterministic mock AI, so no LLM key is required. A browser recording is always saved first. Transcription is configured independently: Groq is the default provider abstraction and uses `whisper-large-v3-turbo` when `TRANSCRIPTION_MODE=real` and `TRANSCRIPTION_API_KEY` is set. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE`, `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` for reasoning, and `TRANSCRIPTION_BASE_URL`, `TRANSCRIPTION_API_KEY`, `TRANSCRIPTION_MODEL`, `TRANSCRIPTION_MAX_MB`, or `TRANSCRIPTION_CHUNK_SECONDS` for speech-to-text. Legacy `AI_*` variables remain supported.
+The default local configuration uses Groq for transcription and reasoning: `whisper-large-v3-turbo` converts audio to text, and `openai/gpt-oss-120b` produces structured summaries, decisions, action items, follow-ups, and unresolved questions. When `LLM_API_KEY` is empty, reasoning reuses `TRANSCRIPTION_API_KEY`; set it explicitly to use a separate credential. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE=mock` for deterministic local tests. Legacy `AI_*` variables remain supported.
+
+## Cloudflare deployment target
+
+The `cloudflare/` directory contains the separate Worker + D1 + R2 + Queues deployment target. It does not alter the local JSON/filesystem server or its recordings. Follow [`cloudflare/README.md`](cloudflare/README.md) only after creating the Cloudflare resources and verifying the migration/import plan; the iOS client keeps a local-server upload fallback during this transition.
+
+The private hosted installation is available at `https://noted.shepswork.com`.
 
 ## Docker
 

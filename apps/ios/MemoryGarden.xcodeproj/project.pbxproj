@@ -22,6 +22,7 @@
 		948BB9FB76912EDBCB71F6FC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872E6C68F05123C41A8A7708 /* APIClient.swift */; };
 		94F5A646A6919CB6CF0A1A94 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6A170983429934256899811B /* Assets.xcassets */; };
 		9BAFB84B8163A73FC0A1F345 /* RecordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9442D77C24985168181AC8E6 /* RecordView.swift */; };
+		A59BB1B58B31089A96FACEB4 /* LocalAudioValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED496C9B0D75AA8A210A693 /* LocalAudioValidator.swift */; };
 		A868219DCFD721FCCDED1F49 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E6F14337B034EF65F55C60 /* SettingsView.swift */; };
 		AACBA7CE3133A1912ADC92E1 /* MemoryGardenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D02754D51E59660E260EF76 /* MemoryGardenTests.swift */; };
 		B2D3119E56CD1CB554599B71 /* MeetingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D46C318F2D89B72C273D4AA /* MeetingsView.swift */; };
@@ -56,6 +57,7 @@
 		3A83BCDB08D245336FF85132 /* MemoryGardenUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGardenUITests.swift; sourceTree = "<group>"; };
 		3D02754D51E59660E260EF76 /* MemoryGardenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGardenTests.swift; sourceTree = "<group>"; };
 		6A170983429934256899811B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6ED496C9B0D75AA8A210A693 /* LocalAudioValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioValidator.swift; sourceTree = "<group>"; };
 		80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalRecordingStore.swift; sourceTree = "<group>"; };
 		83C1E08382790ECA7C96781B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		872E6C68F05123C41A8A7708 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 				9935609027BB55D4A8D65B67 /* AudioRecorder.swift */,
 				9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */,
 				0BF87740B918414C470E70AD /* KeychainStore.swift */,
+				6ED496C9B0D75AA8A210A693 /* LocalAudioValidator.swift */,
 				80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */,
 				EB6D39F2F9B0C7D47D7E95B6 /* UploadManager.swift */,
 			);
@@ -387,6 +390,7 @@
 				2C3951955B7D4839EE47C3A3 /* ConnectivityMonitor.swift in Sources */,
 				345F90C3D1AF9D9C0622A9F2 /* Design.swift in Sources */,
 				C44C912A10F72E9E7480A63D /* KeychainStore.swift in Sources */,
+				A59BB1B58B31089A96FACEB4 /* LocalAudioValidator.swift in Sources */,
 				246CC966C083E8ED39AE42F3 /* LocalRecordingStore.swift in Sources */,
 				B2D3119E56CD1CB554599B71 /* MeetingsView.swift in Sources */,
 				404BDD9E67C4F827F6F89127 /* MemoryGardenApp.swift in Sources */,

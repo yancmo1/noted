@@ -2,6 +2,9 @@ import SwiftUI
 
 struct MeetingsView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var pendingDelete: MeetingDeleteTarget?
+    @State private var showDeleteConfirmation = false
+    @State private var deletionError: String?
 
     private var serverByID: [String: Source] {
         Dictionary(uniqueKeysWithValues: model.serverRecordings.map { ($0.id, $0) })
@@ -9,6 +12,7 @@ struct MeetingsView: View {
 
     private var serverOnly: [Source] {
         model.serverRecordings.filter { source in
+            !model.localStore.deletedServerSourceIDs().contains(source.id) &&
             !model.localRecordings.contains { recording in
                 recording.serverSourceId == source.id || source.metadata["clientRecordingId"] == recording.id.uuidString
             }
@@ -31,17 +35,35 @@ struct MeetingsView: View {
                             } label: {
                                 MeetingRow(recording: recording, source: source(for: recording))
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    pendingDelete = MeetingDeleteTarget(recording: recording, source: source(for: recording))
+                                    showDeleteConfirmation = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                .accessibilityIdentifier("delete-meeting-\(recording.id.uuidString)")
+                            }
                         }
                     }
                 }
 
                 if !serverOnly.isEmpty {
-                    Section("From Memory Garden") {
+                    Section("From Noted") {
                         ForEach(serverOnly) { source in
                             NavigationLink {
                                 MeetingDetailView(recording: nil, source: source)
                             } label: {
                                 MeetingRow(recording: nil, source: source)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    pendingDelete = MeetingDeleteTarget(recording: nil, source: source)
+                                    showDeleteConfirmation = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                .accessibilityIdentifier("delete-meeting-\(source.id)")
                             }
                         }
                     }
@@ -63,8 +85,36 @@ struct MeetingsView: View {
                 }
             }
             .refreshable { await model.handleSceneActive() }
+            .confirmationDialog("Delete this meeting?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    guard let pendingDelete else { return }
+                    Task { await delete(pendingDelete) }
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            } message: {
+                Text("The audio and its derived memories will be removed. This cannot be undone.")
+            }
+            .alert("Could not delete meeting", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
+                Button("OK", role: .cancel) { deletionError = nil }
+            } message: {
+                Text(deletionError ?? "Try again when the server is reachable.")
+            }
         }
     }
+
+    private func delete(_ target: MeetingDeleteTarget) async {
+        do {
+            try await model.deleteRecording(target.recording, source: target.source)
+        } catch {
+            deletionError = error.localizedDescription
+        }
+        pendingDelete = nil
+    }
+}
+
+struct MeetingDeleteTarget {
+    let recording: LocalRecording?
+    let source: Source?
 }
 
 struct MeetingRow: View {
@@ -73,11 +123,22 @@ struct MeetingRow: View {
 
     private var title: String { recording?.title ?? source?.title ?? "Untitled Meeting" }
     private var state: String {
-        if let recording { return recording.state.title }
+        if let recording {
+            if recording.state == .needsRepair || recording.state == .missingFile { return recording.state.title }
+            if recording.serverSourceId != nil {
+                switch recording.state {
+                case .ready: return "Ready"
+                case .processing, .uploading: return "Processing"
+                case .failed: return "Server Error"
+                default: return "On Server"
+                }
+            }
+            return recording.state == .failed ? "Send Failed" : "Not Sent"
+        }
         switch source?.processingStatus {
         case .pending, .processing: return "Processing"
         case .ready: return "Ready"
-        case .partial: return "Partial"
+        case .partial: return "Uploaded · Awaiting transcription"
         case .failed: return "Needs Retry"
         case nil: return "Ready"
         }
@@ -87,7 +148,7 @@ struct MeetingRow: View {
         HStack(spacing: 12) {
             Image(systemName: "waveform.circle.fill")
                 .font(.title2)
-                .foregroundStyle(.indigo)
+                .foregroundStyle(Color.notedPrimary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.headline)
@@ -113,32 +174,47 @@ struct MeetingRow: View {
 
     private var statusColor: Color {
         switch recording?.state {
-        case .failed, .missingFile: .red
-        case .partial, .recovering, .interrupted: .orange
-        case .ready: .green
-        default: source?.processingStatus == .failed ? .red : .indigo
+        case .failed, .needsRepair, .missingFile: .red
+        case .partial, .recovering, .interrupted, .localOnly, .queued: Color.notedAttention
+        case .ready: Color.notedSuccess
+        default: source?.processingStatus == .failed ? .red : Color.notedPrimary
         }
     }
 }
 
 struct MeetingDetailView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     let recording: LocalRecording?
     let source: Source?
 
     @State private var bundle: SourceBundle?
-    @State private var player = AudioPlayer()
+    @StateObject private var player = AudioPlayer()
     @State private var audioError: String?
     @State private var actionStatuses: [String: String] = [:]
     @State private var isRetrying = false
+    @State private var retryError: String?
+    @State private var retryNotice: String?
+    @State private var isUploading = false
+    @State private var uploadError: String?
+    @State private var showDeleteConfirmation = false
+    @State private var deletionError: String?
 
-    private var sourceID: String? { recording?.serverSourceId ?? source?.id }
-    private var localURL: URL? { recording?.localFileURL }
+    private var currentRecording: LocalRecording? {
+        guard let recording else { return nil }
+        return model.localRecordings.first(where: { $0.id == recording.id }) ?? recording
+    }
+    private var sourceID: String? { currentRecording?.serverSourceId ?? source?.id }
+    private var localURL: URL? {
+        guard let recording = currentRecording else { return nil }
+        return model.localStore.resolvedURL(for: recording)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppSpacing.section) {
                 header
+                uploadControl
                 playerCard
                 statusBanner
                 if let brief = bundle?.source.meetingBrief {
@@ -154,23 +230,142 @@ struct MeetingDetailView: View {
             }
             .padding(AppSpacing.screen)
         }
-        .navigationTitle(recording?.title ?? source?.title ?? "Meeting")
+        .navigationTitle(currentRecording?.title ?? source?.title ?? "Meeting")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) { showDeleteConfirmation = true } label: {
+                    Image(systemName: "trash")
+                }
+                .accessibilityLabel("Delete meeting")
+                .accessibilityIdentifier("delete-meeting-detail")
+            }
+        }
+        .confirmationDialog("Delete this meeting?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    do {
+                        try await model.deleteRecording(currentRecording, source: source)
+                        dismiss()
+                    } catch {
+                        deletionError = error.localizedDescription
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The audio and its derived memories will be removed. This cannot be undone.")
+        }
+        .alert("Could not delete meeting", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
+            Button("OK", role: .cancel) { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "Try again when the server is reachable.")
+        }
         .task { await loadAndPoll() }
+        .onDisappear { player.stop() }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            Text(recording?.title ?? source?.title ?? "Untitled Meeting")
+            Text(currentRecording?.title ?? source?.title ?? "Untitled Meeting")
                 .font(.title.bold())
                 .lineLimit(3)
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "calendar")
-                Text(recording?.createdAt.formatted(date: .abbreviated, time: .shortened) ?? source?.capturedAt ?? "")
-                StatusPill(text: recording?.state.title ?? source?.processingStatus.rawValue.capitalized ?? "Ready", color: .indigo)
+                Text(currentRecording?.createdAt.formatted(date: .abbreviated, time: .shortened) ?? source?.capturedAt ?? "")
+                StatusPill(text: uploadStatusText, color: uploadStatusColor)
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var uploadControl: some View {
+        if let recording = currentRecording {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                if recording.state == .needsRepair || recording.state == .missingFile {
+                    Label("Cannot send this recording", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                    Text(recording.lastError ?? "The audio is missing or incomplete.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if recording.serverSourceId != nil {
+                    Label("Saved on the server", systemImage: "checkmark.icloud.fill")
+                        .font(.headline)
+                        .foregroundStyle(Color.notedSuccess)
+                    Text(serverProgressText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Only on this iPhone", systemImage: "iphone")
+                        .font(.headline)
+                    Text("This recording will stay private on this phone until you choose to send it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        sendToServer(recording.id)
+                    } label: {
+                        if isUploading {
+                            HStack {
+                                ProgressView().tint(.white)
+                                Text("Sending…")
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Label("Send This Recording to Server", systemImage: "icloud.and.arrow.up.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isUploading || !model.authenticated)
+                    .accessibilityIdentifier("send-recording-\(recording.id.uuidString)")
+                    if !model.authenticated {
+                        Text("Connect to the server in Settings before sending.")
+                            .font(.footnote)
+                            .foregroundStyle(Color.notedAttention)
+                    }
+                }
+                if let uploadError {
+                    Text(uploadError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(AppSpacing.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: AppRadius.card))
+        }
+    }
+
+    private var uploadStatusText: String {
+        guard let recording = currentRecording else { return source?.processingStatus.rawValue.capitalized ?? "Ready" }
+        if recording.state == .needsRepair || recording.state == .missingFile { return recording.state.title }
+        if recording.serverSourceId != nil {
+            switch recording.state {
+            case .ready: return "Ready"
+            case .processing, .uploading: return "Processing"
+            case .failed: return "Server Error"
+            default: return "On Server"
+            }
+        }
+        return recording.state == .failed ? "Send Failed" : "Not Sent"
+    }
+
+    private var uploadStatusColor: Color {
+        guard let recording = currentRecording else { return source?.processingStatus == .failed ? .red : Color.notedPrimary }
+        if recording.state == .needsRepair || recording.state == .missingFile || recording.state == .failed { return .red }
+        return recording.serverSourceId == nil ? Color.notedAttention : Color.notedSuccess
+    }
+
+    private var serverProgressText: String {
+        switch currentRecording?.state {
+        case .ready: "Audio, transcript, and meeting record are ready."
+        case .processing: "Audio uploaded. The server is processing it."
+        case .partial: "Audio uploaded. Transcription setup is still required."
+        case .failed: "Audio uploaded, but server processing needs attention."
+        default: "The server has confirmed receipt of the audio."
         }
     }
 
@@ -183,13 +378,21 @@ struct MeetingDetailView: View {
                 Text(timeLabel(player.duration)).monospacedDigit()
             }
             .font(.caption)
-            Button { player.toggle() } label: {
+            if !player.canPlay {
+                Label(audioError ?? player.errorMessage ?? "Preparing audio…", systemImage: audioError == nil && player.errorMessage == nil ? "hourglass" : "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(audioError == nil && player.errorMessage == nil ? Color.secondary : Color.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button { _ = player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 56))
             }
             .frame(maxWidth: .infinity)
             .accessibilityLabel(player.isPlaying ? "Pause meeting playback" : "Play meeting recording")
-            if let recording, !recording.bookmarks.isEmpty {
+            .accessibilityValue(player.canPlay ? "(timeLabel(player.currentTime)) of (timeLabel(player.duration))" : "Audio unavailable")
+            .disabled(!player.canPlay)
+            if let recording = currentRecording, !recording.bookmarks.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AppSpacing.sm) {
                         ForEach(recording.bookmarks) { mark in
@@ -201,30 +404,67 @@ struct MeetingDetailView: View {
             }
         }
         .padding(AppSpacing.card)
-        .background(Color.indigo.opacity(0.1), in: RoundedRectangle(cornerRadius: AppRadius.card))
+        .background(Color.notedMemory.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card))
     }
 
     @ViewBuilder
     private var statusBanner: some View {
-        if let error = audioError {
+        if isRetrying {
+            HStack(spacing: AppSpacing.sm) {
+                ProgressView()
+                Text("Transcribing and processing this recording…")
+            }
+            .font(.callout)
+            .foregroundStyle(Color.notedMemory)
+            .padding(AppSpacing.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.notedMemory.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Retrying processing")
+        }
+        if let retryError {
+            Label(retryError, systemImage: "xmark.circle.fill")
+                .font(.callout)
+                .foregroundStyle(.red)
+        }
+        if let retryNotice {
+            Label(retryNotice, systemImage: "checkmark.circle.fill")
+                .font(.callout)
+                .foregroundStyle(Color.notedSuccess)
+        }
+        if let error = audioError ?? player.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.notedAttention)
         }
-        if let processingError = bundle?.source.processingError ?? source?.processingError ?? recording?.lastError {
+        if let processingError = bundle?.source.processingError ?? source?.processingError ?? currentRecording?.lastError {
             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                Label("This meeting is safe on the device, but processing needs attention.", systemImage: "exclamationmark.triangle")
+                let awaitingSetup = processingError.localizedCaseInsensitiveContains("no transcription provider is configured")
+                Label(awaitingSetup ? "Uploaded · awaiting transcription setup" : "This meeting is safe on the device, but processing needs attention.", systemImage: awaitingSetup ? "clock.badge.exclamationmark" : "exclamationmark.triangle")
                     .font(.callout)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.notedAttention)
                 Text(processingError).font(.footnote).foregroundStyle(.secondary)
-                if sourceID != nil && model.authenticated {
-                    Button("Retry processing") { retryProcessing() }
-                        .buttonStyle(.bordered)
-                        .disabled(isRetrying)
+                if awaitingSetup {
+                    Text("Configure a transcription provider on the server before retrying processing.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if sourceID != nil && model.authenticated {
+                    Button { retryProcessing() } label: {
+                        if isRetrying {
+                            HStack(spacing: AppSpacing.xs) {
+                                ProgressView()
+                                Text("Retrying…")
+                            }
+                        } else {
+                            Text("Retry processing")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isRetrying)
                 }
             }
             .padding(AppSpacing.card)
-            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: AppRadius.card))
+            .background(Color.notedAttention.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card))
         }
     }
 
@@ -240,8 +480,8 @@ struct MeetingDetailView: View {
                         HStack(alignment: .top, spacing: AppSpacing.sm) {
                             Text(segment.startMs.map { timeLabel(TimeInterval($0) / 1000) } ?? "—")
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.indigo)
-                                .frame(width: 62, alignment: .leading)
+                                .foregroundStyle(Color.notedPrimary)
+                                .frame(minWidth: 62, alignment: .leading)
                             Text(segment.text)
                                 .foregroundStyle(.primary)
                                 .multilineTextAlignment(.leading)
@@ -275,13 +515,16 @@ struct MeetingDetailView: View {
     }
 
     private func load() async {
+        audioError = nil
         await loadBundle()
         do {
-            if let localURL, FileManager.default.fileExists(atPath: localURL.path) {
+            if let localURL, model.localStore.byteSize(of: localURL) > 0 {
                 try player.load(url: localURL)
             } else if let id = sourceID {
                 let temporary = try await model.api.downloadAudio(sourceId: id)
                 try player.load(url: temporary)
+            } else {
+                throw AudioPlayerError.fileMissing
             }
         } catch {
             audioError = error.localizedDescription
@@ -294,12 +537,45 @@ struct MeetingDetailView: View {
     }
 
     private func retryProcessing() {
-        guard let sourceID else { return }
+        guard let sourceID, !isRetrying else { return }
+        retryError = nil
+        retryNotice = nil
         isRetrying = true
         Task {
-            try? await model.api.reprocess(sourceID: sourceID)
-            await loadBundle()
-            isRetrying = false
+            defer { isRetrying = false }
+            do {
+                try await model.api.reprocess(sourceID: sourceID)
+                try? await Task.sleep(for: .milliseconds(300))
+                for _ in 0..<60 where !Task.isCancelled {
+                    await loadBundle()
+                    if let status = bundle?.source.processingStatus,
+                       status != .pending && status != .processing {
+                        await model.refresh()
+                        retryNotice = status == .ready
+                            ? "Processing complete."
+                            : "Processing finished, but this recording still needs attention."
+                        return
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                retryNotice = "Processing is still running on the server. You can leave this screen and return later."
+            } catch {
+                retryError = error.localizedDescription
+            }
+        }
+    }
+
+    private func sendToServer(_ id: UUID) {
+        uploadError = nil
+        isUploading = true
+        Task {
+            do {
+                try await model.uploadRecording(id: id)
+                await loadBundle()
+            } catch {
+                uploadError = error.localizedDescription
+            }
+            isUploading = false
         }
     }
 
@@ -351,7 +627,7 @@ struct MeetingBriefView: View {
                             onActionStatusChange(item, status == "done" ? "open" : "done")
                         } label: {
                             Image(systemName: status == "done" ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(status == "done" ? .green : .indigo)
+                                .foregroundStyle(status == "done" ? Color.notedSuccess : Color.notedPrimary)
                         }
                         VStack(alignment: .leading, spacing: AppSpacing.xs) {
                             ClaimRow(claim: MeetingClaim(id: item.id, text: item.text, confidence: item.confidence, state: item.state, evidenceRefs: item.evidenceRefs), onSeek: onSeek)

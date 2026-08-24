@@ -140,6 +140,155 @@ const analysisSchema = z.object({
   meeting: meetingAnalysisSchema.optional(),
 }).strict();
 
+// Groq strict structured output requires every declared property to be required
+// and every object to reject additional properties. Optional enrichment fields
+// (dates, owners, descriptions) stay out of the constrained core schema rather
+// than forcing the model to invent values that are not supported by evidence.
+const evidenceJSONSchema = {
+  type: "object",
+  properties: {
+    segmentIndex: { type: "integer" },
+    text: { type: "string" },
+  },
+  required: ["segmentIndex", "text"],
+  additionalProperties: false,
+} as const;
+
+const claimJSONSchema = {
+  type: "object",
+  properties: {
+    text: { type: "string" },
+    confidence: { type: "number" },
+    evidence: { type: "array", items: evidenceJSONSchema },
+  },
+  required: ["text", "confidence", "evidence"],
+  additionalProperties: false,
+} as const;
+
+const analysisJSONSchema = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    memories: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          content: { type: "string" },
+          importance: { type: "number" },
+          confidence: { type: "number" },
+          evidence: { type: "array", items: evidenceJSONSchema },
+        },
+        required: ["type", "content", "importance", "confidence", "evidence"],
+        additionalProperties: false,
+      },
+    },
+    entities: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          name: { type: "string" },
+        },
+        required: ["type", "name"],
+        additionalProperties: false,
+      },
+    },
+    openLoops: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+          confidence: { type: "number" },
+          evidence: { type: "array", items: evidenceJSONSchema },
+        },
+        required: ["description", "confidence", "evidence"],
+        additionalProperties: false,
+      },
+    },
+    relationships: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          entityName: { type: "string" },
+          relationshipType: { type: "string" },
+          confidence: { type: "number" },
+        },
+        required: ["entityName", "relationshipType", "confidence"],
+        additionalProperties: false,
+      },
+    },
+    meeting: {
+      type: "object",
+      properties: {
+        keyPoints: { type: "array", items: claimJSONSchema },
+        decisions: { type: "array", items: claimJSONSchema },
+        actionItems: { type: "array", items: claimJSONSchema },
+        suggestedFollowUps: { type: "array", items: claimJSONSchema },
+        unresolvedQuestions: { type: "array", items: claimJSONSchema },
+      },
+      required: ["keyPoints", "decisions", "actionItems", "suggestedFollowUps", "unresolvedQuestions"],
+      additionalProperties: false,
+    },
+  },
+  required: ["summary", "memories", "entities", "openLoops", "relationships", "meeting"],
+  additionalProperties: false,
+} as const;
+
+const memoryTypes = new Set<MemoryType>(["fact", "decision", "idea", "task", "question", "preference", "reference", "observation", "event"]);
+const entityTypes = new Set<EntityType>(["person", "project", "organization", "product", "place", "topic", "technology", "document"]);
+const boundedConfidence = (value: unknown, fallback = 0.7) => typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
+const usableText = (value: unknown) => typeof value === "string" ? value.trim() : "";
+
+function normalizeAnalysis(value: any) {
+  const evidence = (items: unknown) => Array.isArray(items) ? items.map((item: any) => ({
+    segmentIndex: Math.max(0, Math.trunc(Number(item?.segmentIndex) || 0)),
+    text: usableText(item?.text),
+  })) : [];
+  const claims = (items: unknown) => Array.isArray(items) ? items.map((item: any) => ({
+    text: usableText(item?.text),
+    confidence: boundedConfidence(item?.confidence),
+    evidence: evidence(item?.evidence),
+  })).filter((item) => item.text) : [];
+  const meeting = value?.meeting && typeof value.meeting === "object" ? value.meeting : {};
+  return {
+    summary: usableText(value?.summary),
+    memories: Array.isArray(value?.memories) ? value.memories.map((item: any) => ({
+      type: memoryTypes.has(item?.type) ? item.type : "observation",
+      content: usableText(item?.content),
+      importance: boundedConfidence(item?.importance, 0.5),
+      confidence: boundedConfidence(item?.confidence),
+      evidence: evidence(item?.evidence),
+    })).filter((item: any) => item.content) : [],
+    entities: Array.isArray(value?.entities) ? value.entities.map((item: any) => ({
+      type: entityTypes.has(item?.type) ? item.type : "topic",
+      name: usableText(item?.name),
+    })).filter((item: any) => item.name) : [],
+    openLoops: Array.isArray(value?.openLoops) ? value.openLoops.map((item: any) => ({
+      description: usableText(item?.description),
+      confidence: boundedConfidence(item?.confidence),
+      evidence: evidence(item?.evidence),
+    })).filter((item: any) => item.description) : [],
+    relationships: Array.isArray(value?.relationships) ? value.relationships.map((item: any) => ({
+      entityName: usableText(item?.entityName),
+      relationshipType: usableText(item?.relationshipType),
+      confidence: boundedConfidence(item?.confidence),
+    })).filter((item: any) => item.entityName && item.relationshipType) : [],
+    meeting: {
+      summary: usableText(value?.summary),
+      keyPoints: claims(meeting.keyPoints),
+      decisions: claims(meeting.decisions),
+      actionItems: claims(meeting.actionItems),
+      suggestedFollowUps: claims(meeting.suggestedFollowUps),
+      unresolvedQuestions: claims(meeting.unresolvedQuestions),
+    },
+  };
+}
+
 function sentenceParts(text: string) {
   return text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+|\n+/).map((value) => value.trim()).filter((value) => value.length > 8);
 }
@@ -317,6 +466,18 @@ export class OpenAICompatibleTranscriptionProvider implements TranscriptionProvi
 export class OpenAICompatibleProvider implements AIProvider {
   private readonly fallback = new MockAIProvider();
 
+  private async providerError(response: Response) {
+    let detail = `request failed with status ${response.status}`;
+    try {
+      const body = await response.json() as { error?: { message?: unknown }; message?: unknown };
+      const candidate = body.error?.message ?? body.message;
+      if (typeof candidate === "string" && candidate.trim()) detail = candidate.trim();
+    } catch {
+      // Some compatible providers return an empty or non-JSON error body.
+    }
+    return new Error(`AI provider returned ${response.status}: ${detail}`);
+  }
+
   async analyzeSource(text: string, title: string, evidenceSegments?: EvidenceHint[]) {
     if (!(config.llmBaseUrl && config.llmApiKey && config.llmMode === "real")) return this.fallback.analyzeSource(text, title, evidenceSegments);
     const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -327,19 +488,28 @@ export class OpenAICompatibleProvider implements AIProvider {
         messages: [
           {
             role: "system",
-            content: "Extract a meeting record from the supplied transcript. Return only JSON with summary, memories, entities, openLoops, relationships, and meeting. meeting must contain summary, keyPoints, decisions, actionItems, suggestedFollowUps, unresolvedQuestions. Each claim has text, confidence, and evidence segment indexes. Action item owner and dueAt are inferred values with confidence; omit them when not supported.",
+            content: "Extract a concise, evidence-grounded meeting record from the supplied transcript. Always return all six top-level fields required by the schema: summary, memories, entities, openLoops, relationships, and meeting. Meeting must always contain keyPoints, decisions, actionItems, suggestedFollowUps, and unresolvedQuestions. Use an empty array for every unsupported category; never omit a required field. Distinguish explicit decisions and commitments from suggestions. Action items and follow-ups must be genuinely actionable. Evidence entries must copy the relevant segmentIndex and text from the supplied evidence segments. Keep each category to its five most useful items so the response stays compact.",
           },
           { role: "user", content: `Title: ${title}\nEvidence segments: ${JSON.stringify(evidenceSegments ?? [])}\nTranscript:\n${text}` },
         ],
-        response_format: { type: "json_object" },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "memory_garden_analysis",
+            strict: true,
+            schema: analysisJSONSchema,
+          },
+        },
+        reasoning_effort: "low",
+        max_completion_tokens: 4096,
         temperature: 0.1,
       }),
     });
-    if (!response.ok) throw new Error(`AI provider returned ${response.status}`);
+    if (!response.ok) throw await this.providerError(response);
     const json = await response.json() as any;
     const content = json.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("AI provider returned no structured content");
-    const parsed = analysisSchema.parse(JSON.parse(content));
+    const parsed = analysisSchema.parse(normalizeAnalysis(JSON.parse(content)));
     const fallbackMeeting = await this.fallback.analyzeSource(text, title, evidenceSegments);
     return { ...parsed, meeting: parsed.meeting ?? fallbackMeeting.meeting } as Analysis;
   }
@@ -351,7 +521,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       headers: { Authorization: `Bearer ${config.llmApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: config.llmModel, messages: [{ role: "system", content: "Answer only from the supplied personal-memory evidence. If it is insufficient, say so." }, { role: "user", content: `Question: ${question}\nEvidence:\n${context}` }], temperature: 0.1 }),
     });
-    if (!response.ok) throw new Error(`AI provider returned ${response.status}`);
+    if (!response.ok) throw await this.providerError(response);
     const json = await response.json() as any;
     return String(json.choices?.[0]?.message?.content ?? "I don't have enough evidence in your memories to answer that confidently.");
   }

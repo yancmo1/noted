@@ -63,11 +63,12 @@ final class AppModel: ObservableObject {
     func refresh() async {
         guard authenticated else { return }
         do {
+            await syncDeletions()
             let sources = try await api.listSources()
-            serverRecordings = sources.filter { $0.type == "voice" }
+            let deletedSources = localStore.deletedServerSourceIDs()
+            serverRecordings = sources.filter { $0.type == "voice" && !deletedSources.contains($0.id) }
             reconcileLocalStates()
             today = try await api.today()
-            await syncUploads()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -92,21 +93,78 @@ final class AppModel: ObservableObject {
             await refresh()
         } catch {
             authenticated = false
-            errorMessage = "The server is unavailable. Local recordings remain available and will sync when you reconnect."
+            errorMessage = "The server is unavailable. Local recordings remain available and can be sent after you reconnect."
         }
     }
 
     func saveFinishedRecording(_ recording: LocalRecording) {
-        localRecordings.insert(recording, at: 0); try? localStore.save(localRecordings); Task { await syncUploads() }
+        var current = localStore.load()
+        if let index = current.firstIndex(where: { $0.id == recording.id }) {
+            current[index] = recording
+        } else {
+            current.insert(recording, at: 0)
+        }
+        localRecordings = current.sorted { $0.createdAt > $1.createdAt }
+        try? localStore.save(localRecordings)
     }
 
-    func syncUploads() async {
-        localRecordings = await uploadManager.sync(localRecordings)
+    func uploadRecording(id: UUID) async throws {
+        guard authenticated else { throw AppModelError.notConnected }
+        guard let recording = localRecordings.first(where: { $0.id == id }) else { throw AppModelError.recordingNotFound }
+        guard recording.serverSourceId == nil else { return }
+        guard recording.state != .needsRepair && recording.state != .missingFile else { throw AppModelError.audioNotUploadable }
+
+        errorMessage = nil
+        localRecordings = await uploadManager.sync(localRecordings, recordingID: id)
         try? localStore.save(localRecordings)
-        if authenticated {
-            if let sources = try? await api.listSources() {
-                serverRecordings = sources.filter { $0.type == "voice" }
-                reconcileLocalStates()
+        guard let updated = localRecordings.first(where: { $0.id == id }) else { throw AppModelError.recordingNotFound }
+        if updated.serverSourceId == nil {
+            throw AppModelError.uploadFailed(updated.lastError ?? "The server did not accept this recording.")
+        }
+        if let sources = try? await api.listSources() {
+            let deletedSources = localStore.deletedServerSourceIDs()
+            serverRecordings = sources.filter { $0.type == "voice" && !deletedSources.contains($0.id) }
+            reconcileLocalStates()
+        }
+    }
+
+    func deleteRecording(_ recording: LocalRecording?, source: Source?) async throws {
+        let id = recording?.id ?? UUID()
+        if let recording, audioRecorder.activeRecordingIDForDeletion == recording.id {
+            throw AppModelError.cannotDeleteActiveRecording
+        }
+        let sourceID = recording?.serverSourceId ?? source?.id
+        try localStore.markDeleted(id: id, serverSourceId: sourceID)
+
+        if let sourceID, authenticated {
+            do {
+                try await api.deleteSource(id: sourceID)
+                try? localStore.clearDeletion(forServerSourceID: sourceID)
+            } catch {
+                errorMessage = "Deletion is queued until the server is reachable."
+            }
+        }
+
+        if let recording {
+            let url = localStore.resolvedURL(for: recording)
+            try? FileManager.default.removeItem(at: url)
+            localRecordings.removeAll { $0.id == recording.id }
+        }
+        if let sourceID { serverRecordings.removeAll { $0.id == sourceID } }
+        try? localStore.save(localRecordings)
+    }
+
+    private func syncDeletions() async {
+        guard authenticated else { return }
+        for tombstone in localStore.deletionTombstones() {
+            guard let sourceID = tombstone.serverSourceId else { continue }
+            do {
+                try await api.deleteSource(id: sourceID)
+                try? localStore.clearDeletion(forServerSourceID: sourceID)
+            } catch APIError.server(404, _) {
+                try? localStore.clearDeletion(forServerSourceID: sourceID)
+            } catch {
+                continue
             }
         }
     }
@@ -116,6 +174,12 @@ final class AppModel: ObservableObject {
         var changed = false
 
         for index in localRecordings.indices {
+            // Keep a local integrity failure visible. A server refresh may still
+            // report the source as partial/failed, but it cannot make a corrupt
+            // local file playable or safe to retry.
+            if localRecordings[index].state == .needsRepair || localRecordings[index].state == .missingFile {
+                continue
+            }
             guard let sourceID = localRecordings[index].serverSourceId,
                   let source = sourceByID[sourceID] else { continue }
 
@@ -147,4 +211,22 @@ final class AppModel: ObservableObject {
     func bundle(for sourceID: String) async -> SourceBundle? { try? await api.sourceBundle(id: sourceID) }
     func ask(_ question: String) async throws -> AskResponse { try await api.ask(question) }
     func resolveLoop(_ loop: OpenLoop) async { try? await api.resolveLoop(id: loop.id, status: "resolved"); await refresh() }
+}
+
+enum AppModelError: LocalizedError {
+    case cannotDeleteActiveRecording
+    case notConnected
+    case recordingNotFound
+    case audioNotUploadable
+    case uploadFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .cannotDeleteActiveRecording: "Stop the active recording before deleting it."
+        case .notConnected: "Connect to the server in Settings before sending this recording."
+        case .recordingNotFound: "This recording is no longer available on this iPhone."
+        case .audioNotUploadable: "This recording's audio is missing or needs repair and cannot be sent."
+        case .uploadFailed(let message): "The recording was not sent: \(message)"
+        }
+    }
 }
