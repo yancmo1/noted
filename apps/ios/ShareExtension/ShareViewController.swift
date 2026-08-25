@@ -47,6 +47,7 @@ final class ShareViewController: UIViewController {
 
         do {
             let fileURL = try await provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier)
+            defer { try? FileManager.default.removeItem(at: fileURL) }
             _ = try SharedImportInbox.enqueue(
                 fileURL: fileURL,
                 title: item.attributedContentText?.string,
@@ -88,7 +89,24 @@ private extension NSItemProvider {
                 if let error {
                     continuation.resume(throwing: error)
                 } else if let url {
-                    continuation.resume(returning: url)
+                    // The provider-owned URL is temporary and may be deleted as soon as
+                    // this callback returns. Copy it while the provider still owns it so
+                    // the async caller never receives a stale path.
+                    let extensionName = url.pathExtension.isEmpty
+                        ? (UTType(typeIdentifier)?.preferredFilenameExtension ?? "m4a")
+                        : url.pathExtension
+                    let copyURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("noted-share-\(UUID().uuidString).\(extensionName)")
+                    let accessingSecurityScopedResource = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if accessingSecurityScopedResource { url.stopAccessingSecurityScopedResource() }
+                    }
+                    do {
+                        try FileManager.default.copyItem(at: url, to: copyURL)
+                        continuation.resume(returning: copyURL)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
                 } else {
                     continuation.resume(throwing: SharedImportInboxError.fileUnavailable)
                 }
