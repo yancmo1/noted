@@ -34,6 +34,12 @@ struct SettingsView: View {
                     }
                     Text("Monitor Groq transcription and analysis usage.").font(.footnote).foregroundStyle(.secondary)
                 }
+                Section("Import recordings") {
+                    Label("Share an audio recording to Noted from the Phone, Notes, or Files share sheet.", systemImage: "square.and.arrow.down")
+                    Text("Noted keeps the original audio on this iPhone until upload is confirmed, then sends it for transcription and summaries.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Section("Privacy") { Label("Audio stays on this iPhone until you send that recording and upload is confirmed.", systemImage: "lock.shield"); Label("Authentication password is stored in Keychain.", systemImage: "key.fill"); Text("Recording conversations and meetings may be subject to laws and workplace policies. You are responsible for obtaining permission where required.").font(.footnote).foregroundStyle(.secondary) }
                 Section("App") { LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Development"); LabeledContent("Audio", value: "M4A / AAC · 44.1 kHz mono"); Button("Log out", role: .destructive) { showLogout = true } }
             }.navigationTitle("Settings").confirmationDialog("Log out of Noted?", isPresented: $showLogout) { Button("Log out", role: .destructive) { Task { await model.logout() } } }

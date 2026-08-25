@@ -20,6 +20,8 @@ final class AppModel: ObservableObject {
     @Published var isLoggingIn = false
     @Published var isRestoringSession = false
 
+    private var pendingShareUploadIDs = Set<UUID>()
+
     init() {
         let baseString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "http://127.0.0.1:3333"
         let baseURL = URL(string: baseString.trimmingCharacters(in: .whitespacesAndNewlines)) ?? URL(string: "http://127.0.0.1:3333")!
@@ -32,7 +34,7 @@ final class AppModel: ObservableObject {
     }
 
     func launch() async {
-        isLoading = true; localRecordings = localStore.load()
+        isLoading = true; localRecordings = localStore.load(); importSharedRecordings()
         if let warning = localStore.lastLoadWarning { errorMessage = warning }
         isLoading = false
         if let saved = keychain.password() {
@@ -63,6 +65,7 @@ final class AppModel: ObservableObject {
     func refresh() async {
         guard authenticated else { return }
         do {
+            await uploadPendingShareRecordings()
             await syncDeletions()
             let sources = try await api.listSources()
             let deletedSources = localStore.deletedServerSourceIDs()
@@ -73,7 +76,7 @@ final class AppModel: ObservableObject {
     }
 
     func handleSceneActive() async {
-        localRecordings = localStore.load()
+        localRecordings = localStore.load(); importSharedRecordings()
         if let warning = localStore.lastLoadWarning { errorMessage = warning }
         guard !isRestoringSession else { return }
         if !authenticated, let saved = keychain.password() {
@@ -95,6 +98,47 @@ final class AppModel: ObservableObject {
             authenticated = false
             errorMessage = "The server is unavailable. Local recordings remain available and can be sent after you reconnect."
         }
+    }
+
+    @discardableResult
+    private func importSharedRecordings() -> [UUID] {
+        let pending = SharedImportInbox.pending()
+        guard !pending.isEmpty else { return [] }
+        var current = localRecordings
+        var importedIDs: [UUID] = []
+
+        for manifest in pending {
+            if current.contains(where: { $0.id == manifest.id }) {
+                SharedImportInbox.remove(manifest)
+                continue
+            }
+            do {
+                let imported = try localStore.importSharedRecording(manifest)
+                current.append(imported)
+                importedIDs.append(imported.id)
+                pendingShareUploadIDs.insert(imported.id)
+                SharedImportInbox.remove(manifest)
+            } catch {
+                errorMessage = "Noted saved the shared recording, but could not import it yet: \(error.localizedDescription)"
+            }
+        }
+
+        if !importedIDs.isEmpty {
+            localRecordings = current.sorted { $0.createdAt > $1.createdAt }
+            try? localStore.save(localRecordings)
+        }
+        return importedIDs
+    }
+
+    private func uploadPendingShareRecordings() async {
+        guard !pendingShareUploadIDs.isEmpty else { return }
+        for id in Array(pendingShareUploadIDs) {
+            localRecordings = await uploadManager.sync(localRecordings, recordingID: id)
+            if let recording = localRecordings.first(where: { $0.id == id }), recording.serverSourceId != nil {
+                pendingShareUploadIDs.remove(id)
+            }
+        }
+        try? localStore.save(localRecordings)
     }
 
     func saveFinishedRecording(_ recording: LocalRecording) {

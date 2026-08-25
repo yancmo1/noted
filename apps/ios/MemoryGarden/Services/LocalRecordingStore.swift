@@ -216,6 +216,37 @@ final class LocalRecordingStore {
         recordingsDirectory.appendingPathComponent("\(id.uuidString).m4a")
     }
 
+    func importSharedRecording(_ manifest: SharedImportManifest) throws -> LocalRecording {
+        guard let sourceURL = SharedImportInbox.fileURL(for: manifest, fileManager: fileManager),
+              fileManager.fileExists(atPath: sourceURL.path) else {
+            throw SharedImportInboxError.fileUnavailable
+        }
+
+        let validated = try LocalAudioValidator.validate(url: sourceURL)
+        let fileName = safeFileName(manifest.fileName, fallback: manifest.id)
+        let destination = recordingsDirectory.appendingPathComponent(fileName)
+        if !fileManager.fileExists(atPath: destination.path) {
+            try fileManager.copyItem(at: sourceURL, to: destination)
+        }
+
+        return LocalRecording(
+            id: manifest.id,
+            localFileURL: destination,
+            createdAt: manifest.createdAt,
+            duration: validated.duration,
+            title: manifest.title,
+            state: .localOnly,
+            uploadAttempts: 0,
+            serverSourceId: nil,
+            byteSize: validated.byteSize,
+            bookmarks: [],
+            lastError: nil,
+            consentMode: "conversation",
+            consentAcknowledged: true,
+            finalizedAt: manifest.createdAt
+        )
+    }
+
     func byteSize(of url: URL) -> Int64 {
         (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
     }

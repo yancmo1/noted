@@ -13,8 +13,12 @@ targets:
     platform: iOS
     sources:
       - path: MemoryGarden
+      - path: Shared
     resources:
       - path: MemoryGarden/Resources/Assets.xcassets
+    dependencies:
+      - target: ShareExtension
+        embed: true
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
@@ -43,6 +47,36 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 9PHS626XUN
         CODE_SIGN_ENTITLEMENTS: MemoryGarden/Resources/MemoryGarden.entitlements
+        SWIFT_STRICT_CONCURRENCY: complete
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Shared
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Noted
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsAudioWithMaxCount: 1
+              NSExtensionActivationSupportsAttachmentsWithMaxCount: 1
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+              NSExtensionActivationSupportsMovieWithMaxCount: 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.share
+        PRODUCT_NAME: Noted Share
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 9PHS626XUN
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
   MemoryGardenTests:
     type: bundle.unit-test
@@ -77,6 +111,7 @@ schemes:
     build:
       targets:
         MemoryGarden: all
+        ShareExtension: all
         MemoryGardenTests: [test]
         MemoryGardenUITests: [test]
     test:

@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum APIError: LocalizedError {
     case invalidURL, unauthorized, server(Int, String), invalidResponse, decoding(Error), offline(Error)
@@ -112,13 +113,14 @@ final class APIClient {
     }
 
     private func uploadRecordingDirectToR2(_ recording: LocalRecording, allowAuthRetry: Bool) async throws -> UploadResponse {
+        let mimeType = audioMimeType(for: recording.localFileURL)
         let requestBody = DirectUploadRequest(
             title: recording.title,
             clientRecordingId: recording.id.uuidString,
             startedAt: ISO8601DateFormatter().string(from: recording.createdAt),
             endedAt: ISO8601DateFormatter().string(from: recording.createdAt.addingTimeInterval(recording.duration)),
             durationMs: Int(recording.duration * 1000),
-            mimeType: "audio/mp4",
+            mimeType: mimeType,
             consentMode: recording.consentMode,
             consentAcknowledged: recording.consentAcknowledged
         )
@@ -129,7 +131,7 @@ final class APIClient {
         guard let uploadURLValue = prepared.uploadURL, let uploadURL = URL(string: uploadURLValue) else { throw APIError.invalidURL }
         var uploadRequest = URLRequest(url: uploadURL)
         uploadRequest.httpMethod = "PUT"
-        uploadRequest.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+        uploadRequest.setValue(mimeType, forHTTPHeaderField: "Content-Type")
         let (_, uploadResponse) = try await session.upload(for: uploadRequest, fromFile: recording.localFileURL)
         guard let http = uploadResponse as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (uploadResponse as? HTTPURLResponse)?.statusCode ?? 0
@@ -152,11 +154,17 @@ final class APIClient {
         try field("consentAcknowledged", "true")
         try field("client", "native")
         try field("clientRecordingId", recording.id.uuidString)
-        try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(recording.id.uuidString).m4a\"\r\nContent-Type: audio/mp4\r\n\r\n")
+        let mimeType = audioMimeType(for: recording.localFileURL)
+        let fileExtension = recording.localFileURL.pathExtension.isEmpty ? "m4a" : recording.localFileURL.pathExtension
+        try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(recording.id.uuidString).\(fileExtension)\"\r\nContent-Type: \(mimeType)\r\n\r\n")
         let input = try FileHandle(forReadingFrom: recording.localFileURL)
         defer { try? input.close() }
         while let data = try input.read(upToCount: 1024 * 1024), !data.isEmpty { try output.write(contentsOf: data) }
         try write("\r\n--\(boundary)--\r\n")
+    }
+
+    private func audioMimeType(for url: URL) -> String {
+        UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "audio/mp4"
     }
 
     private func makeRequest(path: String, method: String = "GET") throws -> URLRequest {

@@ -49,6 +49,20 @@
                ReferencedContainer = "container:MemoryGarden.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "270CFEAD8DC48774D9041D48"
+               BuildableName = "ShareExtension.appex"
+               BlueprintName = "ShareExtension"
+               ReferencedContainer = "container:MemoryGarden.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
