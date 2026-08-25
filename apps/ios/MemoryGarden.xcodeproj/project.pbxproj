@@ -3,13 +3,13 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		0939B61F739AE93CE4391B1C /* UploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6D39F2F9B0C7D47D7E95B6 /* UploadManager.swift */; };
 		11E4C513869EEC6C4A70C894 /* RecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC45EFF90BD191B69F08EBEE /* RecordingsView.swift */; };
-		15DE9E2ECDDDA6E709224764 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8ECA199F1603A700AA64E4B7 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		15DE9E2ECDDDA6E709224764 /* Noted Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8ECA199F1603A700AA64E4B7 /* Noted Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		18CD8A9BE957B760EFE5A95A /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 144B2A526C5C4B7159F1E790 /* APIModels.swift */; };
 		246CC966C083E8ED39AE42F3 /* LocalRecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */; };
 		2C3951955B7D4839EE47C3A3 /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */; };
@@ -65,7 +65,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				15DE9E2ECDDDA6E709224764 /* ShareExtension.appex in Embed Foundation Extensions */,
+				15DE9E2ECDDDA6E709224764 /* Noted Share.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -76,7 +76,7 @@
 		0BF87740B918414C470E70AD /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		0CB0737D5DC024E1E1550166 /* ShareImportInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareImportInbox.swift; sourceTree = "<group>"; };
 		0D46C318F2D89B72C273D4AA /* MeetingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingsView.swift; sourceTree = "<group>"; };
-		1224197A0C6A21555CC4BD79 /* MemoryGarden.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MemoryGarden.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1224197A0C6A21555CC4BD79 /* MemoryGarden.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MemoryGarden.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		144B2A526C5C4B7159F1E790 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		16E6F14337B034EF65F55C60 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1A4B0E84A521F0B43AF38D35 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
@@ -87,12 +87,12 @@
 		80DB60C39D9C032BFF25EEBB /* LocalRecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalRecordingStore.swift; sourceTree = "<group>"; };
 		83C1E08382790ECA7C96781B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		872E6C68F05123C41A8A7708 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		8ECA199F1603A700AA64E4B7 /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8ECA199F1603A700AA64E4B7 /* Noted Share.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Noted Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9442D77C24985168181AC8E6 /* RecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordView.swift; sourceTree = "<group>"; };
 		9473F2EDA8B9B833CFC97148 /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
 		9935609027BB55D4A8D65B67 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
-		A8258ACA4132836A62A50705 /* MemoryGardenUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoryGardenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2F58B7B321F77F3FA8E9A9F /* MemoryGardenTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoryGardenTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8258ACA4132836A62A50705 /* MemoryGardenUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MemoryGardenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2F58B7B321F77F3FA8E9A9F /* MemoryGardenTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MemoryGardenTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1557895A675C8EA2663ABA3 /* MemoryGardenApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGardenApp.swift; sourceTree = "<group>"; };
 		C3BAA80E0A12E8D81EB44936 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		C8AD5308AD8178DC0B861859 /* MemoryGarden.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MemoryGarden.entitlements; sourceTree = "<group>"; };
@@ -162,7 +162,7 @@
 				1224197A0C6A21555CC4BD79 /* MemoryGarden.app */,
 				B2F58B7B321F77F3FA8E9A9F /* MemoryGardenTests.xctest */,
 				A8258ACA4132836A62A50705 /* MemoryGardenUITests.xctest */,
-				8ECA199F1603A700AA64E4B7 /* ShareExtension.appex */,
+				8ECA199F1603A700AA64E4B7 /* Noted Share.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -317,7 +317,7 @@
 			packageProductDependencies = (
 			);
 			productName = ShareExtension;
-			productReference = 8ECA199F1603A700AA64E4B7 /* ShareExtension.appex */;
+			productReference = 8ECA199F1603A700AA64E4B7 /* Noted Share.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		87F8541DDEAA41DCB0BFA95C /* MemoryGardenUITests */ = {
@@ -383,7 +383,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					270CFEAD8DC48774D9041D48 = {
 						DevelopmentTeam = 9PHS626XUN;
@@ -412,7 +412,6 @@
 			);
 			mainGroup = EC3870099F8E465E47609B57;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -512,7 +511,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -563,8 +561,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 9PHS626XUN;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -578,6 +578,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -589,7 +590,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -614,7 +614,6 @@
 				CODE_SIGN_ENTITLEMENTS = MemoryGarden/Resources/MemoryGarden.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = MemoryGarden/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -639,7 +638,6 @@
 				CODE_SIGN_ENTITLEMENTS = MemoryGarden/Resources/MemoryGarden.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = MemoryGarden/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -660,7 +658,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -680,7 +677,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -701,7 +697,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -753,8 +748,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 9PHS626XUN;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -775,6 +772,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -785,7 +783,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 9PHS626XUN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
