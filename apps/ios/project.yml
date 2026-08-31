@@ -1,29 +1,32 @@
-name: MemoryGarden
+name: Noted
 options:
   deploymentTarget:
     iOS: "17.0"
-  bundleIdPrefix: com.memorygarden
+  bundleIdPrefix: com.shepswork
   createIntermediateGroups: true
 configs:
   Debug: debug
   Release: release
 targets:
-  MemoryGarden:
+  Noted:
     type: application
     platform: iOS
     sources:
-      - path: MemoryGarden
+      - path: Noted
       - path: Shared
+      - path: WatchConnectivity
     resources:
-      - path: MemoryGarden/Resources/Assets.xcassets
+      - path: Noted/Resources/Assets.xcassets
     dependencies:
       - target: ShareExtension
+        embed: true
+      - target: Noted Watch Spike
         embed: true
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
     info:
-      path: MemoryGarden/Resources/Info.plist
+      path: Noted/Resources/Info.plist
       properties:
         CFBundleDisplayName: Noted
         API_BASE_URL: $(API_BASE_URL)
@@ -39,15 +42,49 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted
-        PRODUCT_NAME: MemoryGarden
+        PRODUCT_NAME: Noted
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: false
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 9PHS626XUN
-        CODE_SIGN_ENTITLEMENTS: MemoryGarden/Resources/MemoryGarden.entitlements
+        CODE_SIGN_ENTITLEMENTS: Noted/Resources/Noted.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
+  Noted Watch Spike:
+    type: application
+    platform: watchOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: WatchRecorder
+      - path: WatchConnectivity
+    info:
+      path: WatchRecorder/Info.plist
+      properties:
+        CFBundleDisplayName: Noted Spike
+        CFBundleName: Noted Spike
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        NSMicrophoneUsageDescription: Noted uses the Apple Watch microphone to validate reliable meeting capture.
+        UIBackgroundModes:
+          - audio
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.shepswork.noted
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.watchkitapp
+        PRODUCT_NAME: Noted Watch Spike
+        SWIFT_VERSION: "5.0"
+        WATCHOS_DEPLOYMENT_TARGET: "11.0"
+        TARGETED_DEVICE_FAMILY: "4"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 9PHS626XUN
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
   ShareExtension:
     type: app-extension
     platform: iOS
@@ -71,6 +108,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.share
         PRODUCT_NAME: Noted Share
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         TARGETED_DEVICE_FAMILY: "1"
@@ -78,43 +117,50 @@ targets:
         DEVELOPMENT_TEAM: 9PHS626XUN
         CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
-  MemoryGardenTests:
+  NotedTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: MemoryGardenTests
+      - path: NotedTests
     dependencies:
-      - target: MemoryGarden
+      - target: Noted
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.tests
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         GENERATE_INFOPLIST_FILE: YES
         DEVELOPMENT_TEAM: 9PHS626XUN
-  MemoryGardenUITests:
+  NotedUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
-      - path: MemoryGardenUITests
+      - path: NotedUITests
     dependencies:
-      - target: MemoryGarden
+      - target: Noted
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.memorygarden.ios.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.uitests
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         GENERATE_INFOPLIST_FILE: YES
         DEVELOPMENT_TEAM: 9PHS626XUN
 schemes:
-  MemoryGarden:
+  Noted:
     build:
       targets:
-        MemoryGarden: all
+        Noted: all
         ShareExtension: all
-        MemoryGardenTests: [test]
-        MemoryGardenUITests: [test]
+        Noted Watch Spike: [build]
+        NotedTests: [test]
+        NotedUITests: [test]
     test:
       targets:
-        - name: MemoryGardenTests
-        - name: MemoryGardenUITests
+        - name: NotedTests
+        - name: NotedUITests
+  Noted Watch Spike:
+    build:
+      targets:
+        Noted Watch Spike: all
+    run:
+      config: Debug

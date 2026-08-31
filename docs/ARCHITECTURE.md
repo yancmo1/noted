@@ -23,7 +23,7 @@ Conversation and meeting modes require an explicit consent acknowledgement in th
 Native uploads include a durable client recording UUID in multipart form data. The API stores it in source metadata and returns the existing Source when the same UUID is retried, preventing duplicate backend records.
 - `storage/uploads`: private uploaded files; they are only served through an authenticated source route.
 
-The iOS client stores relative audio filenames and a versioned manifest in Application Support/MemoryGarden, with an atomic primary index and last-known-good backup. Launch reconciliation keeps missing metadata visible and imports UUID-named orphan audio as recovered recordings.
+The Noted iOS client stores relative audio filenames and a versioned manifest in the existing Application Support/MemoryGarden location, with an atomic primary index and last-known-good backup. Keeping that location preserves recordings across the product rename. Launch reconciliation keeps missing metadata visible and imports UUID-named orphan audio as recovered recordings.
 
 Meeting-mode Sources optionally carry `meetingBrief` with summary, key points, decisions, action items, follow-ups, unresolved questions, confidence, claim state, and transcript evidence. Legacy Memories/Open Loops remain as a compatibility projection for the web client.
 

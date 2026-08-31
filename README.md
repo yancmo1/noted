@@ -20,6 +20,16 @@ For long-recording chunking during local development, install `ffmpeg` and `ffpr
 
 The default local configuration uses Groq for transcription and reasoning: `whisper-large-v3-turbo` converts audio to text, and `openai/gpt-oss-120b` produces structured summaries, decisions, action items, follow-ups, and unresolved questions. When `LLM_API_KEY` is empty, reasoning reuses `TRANSCRIPTION_API_KEY`; set it explicitly to use a separate credential. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE=mock` for deterministic local tests. Legacy `AI_*` variables remain supported.
 
+### Local reasoning with Ollama
+
+Ollama can handle analysis on the Mac without sending the transcript to Groq. The `gpt-oss:20b` model is already installed on the development Mac. Start the local API with:
+
+```bash
+npm run dev:api:local
+```
+
+The Mac transcriber’s “Send transcript to Noted” sheet includes a “Use Local Mac” shortcut for `http://127.0.0.1:3333`. The existing Groq settings remain available through the normal `npm run dev:api` command.
+
 ## Cloudflare deployment target
 
 The `cloudflare/` directory contains the separate Worker + D1 + R2 + Queues deployment target. It does not alter the local JSON/filesystem server or its recordings. Follow [`cloudflare/README.md`](cloudflare/README.md) only after creating the Cloudflare resources and verifying the migration/import plan; the iOS client keeps a local-server upload fallback during this transition.

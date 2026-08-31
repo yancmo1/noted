@@ -60,6 +60,10 @@ It preserves source IDs, uploads files to `audio/{sourceId}/original`, and marks
 
 The iOS client first requests `/api/recordings/upload-url`, receives an authenticated Noted upload URL, streams the audio through the Worker into private R2, and then calls `/api/recordings/:id/complete`. This avoids persistent R2 API credentials in the Worker. The local API fallback remains in the client during transition.
 
+## Mac local-transcription handoff
+
+The Noted Transcriber macOS app runs Whisper locally, keeps the original audio/video on the Mac, and sends only reviewed transcript text plus timestamped segments to `POST /api/recordings/local-transcript`. The endpoint uses the normal Noted session cookie, deduplicates by `clientRecordingId`, stores no R2 object, and queues the text for the existing meeting analysis flow. The Mac client requires HTTPS and does not expose a listener or port to the public internet.
+
 ## Important migration limitation
 
 Cloudflare Workers cannot run the current `ffprobe`/`ffmpeg` subprocess flow. The Worker path currently accepts recordings within Groq's speech upload limit and processes them from R2. Long-recording chunking and container-level media validation need a separate follow-up design before large recordings are cut over.

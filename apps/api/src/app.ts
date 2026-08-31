@@ -267,6 +267,53 @@ export async function buildApp(): Promise<FastifyInstance> {
     queueSource(source.id);
     return sourceBundle(source.id);
   });
+  app.post("/api/recordings/local-transcript", async (request: any, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const clientRecordingId = String(body.clientRecordingId ?? "").trim();
+    const title = String(body.title ?? "Local recording").trim() || "Local recording";
+    const text = String(body.transcriptText ?? "").trim();
+    const durationMs = Number(body.durationMs ?? 0);
+    if (!clientRecordingId) return reply.code(400).send({ error: "clientRecordingId is required" });
+    if (!text) return reply.code(400).send({ error: "transcriptText is required" });
+    if (!Number.isFinite(durationMs) || durationMs < 0) return reply.code(400).send({ error: "durationMs must be a non-negative number" });
+
+    const mode = consentMode(body.consentMode);
+    const acknowledged = boolField(body.consentAcknowledged);
+    if ((mode === "conversation" || mode === "meeting") && !acknowledged) return reply.code(400).send({ error: "Consent acknowledgement is required for conversation or meeting mode" });
+
+    const rawSegments: unknown[] = Array.isArray(body.segments) ? body.segments : [];
+    const segments: Omit<TranscriptSegment, "id" | "sourceId" | "createdAt">[] = rawSegments.length
+      ? rawSegments.map((raw: any, index) => ({ segmentIndex: index, text: String(raw?.text ?? "").trim(), startMs: typeof raw?.startMs === "number" ? raw.startMs : undefined, endMs: typeof raw?.endMs === "number" ? raw.endMs : undefined })).filter((segment) => segment.text)
+      : [{ segmentIndex: 0, text }];
+    if (!segments.length) return reply.code(400).send({ error: "At least one transcript segment is required" });
+
+    const mimeType = typeof body.mimeType === "string" ? body.mimeType : undefined;
+    const startedAt = typeof body.startedAt === "string" && body.startedAt ? body.startedAt : new Date().toISOString();
+    const endedAt = typeof body.endedAt === "string" && body.endedAt ? body.endedAt : new Date().toISOString();
+    const { source, created } = store.createVoiceSourceIfAbsent({
+      id: crypto.randomUUID(),
+      title,
+      clientRecordingId,
+      originalText: text,
+      extractedText: text,
+      transcriptText: text,
+      transcriptStatus: "ready",
+      processingStatus: "pending",
+      capturedAt: startedAt,
+      durationMs,
+      mimeType,
+      audioMimeType: mimeType,
+      consentMode: mode,
+      consentAcknowledged: acknowledged,
+      metadata: { client: "native", clientRecordingId, source: "local-transcript" },
+    });
+
+    const savedSegments = created ? store.replaceTranscript(source.id, segments) : store.transcriptForSource(source.id);
+    const session = created ? store.createRecordingSession({ sourceId: source.id, status: "uploaded", startedAt, endedAt, durationMs, mimeType, client: "native", consentMode: mode, consentAcknowledged: acknowledged, metadata: { clientRecordingId, source: "local-transcript" } }) : source.recordingSessionId ? store.getRecordingSession(source.recordingSessionId) : store.getRecordingSessionForSource(source.id);
+    if (created && session) store.updateSource(source.id, { recordingSessionId: session.id });
+    if (created) queueSource(source.id);
+    return { source: store.getSource(source.id), recordingSession: session, transcript: { text: source.transcriptText ?? text, segments: savedSegments }, deduplicated: !created };
+  });
   app.post("/api/sources/:id/reprocess", async (request: any, reply) => {
     const source = store.getSource(request.params.id);
     if (!source) return reply.code(404).send({ error: "Source not found" });

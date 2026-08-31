@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --env-file-if-exists=.env --import tsx apps/api/src/server.ts",
+    "dev:api:local": "LLM_MODE=real LLM_BASE_URL=http://127.0.0.1:11434/v1 LLM_API_KEY=ollama LLM_MODEL=gpt-oss:20b node --env-file-if-exists=.env --import tsx apps/api/src/server.ts",
     "dev:web": "vite --config apps/web/vite.config.ts",
     "build": "tsc -b && vite build --config apps/web/vite.config.ts",
     "start": "node --env-file-if-exists=.env apps/api/dist/server.js",

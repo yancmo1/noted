@@ -137,4 +137,41 @@ describe("API meeting capture contract", () => {
     createdSourceIDs.push(body.id);
     expect(body.durationMs).toBe(1200);
   });
+
+  it("accepts a transcript produced by the local Mac transcriber", async () => {
+    const clientRecordingId = "local-transcript-integration-recording";
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/recordings/local-transcript",
+      headers: { cookie },
+      payload: {
+        title: "Local meeting",
+        clientRecordingId,
+        startedAt: "2026-08-29T12:00:00.000Z",
+        endedAt: "2026-08-29T12:00:01.200Z",
+        durationMs: 1200,
+        mimeType: "audio/mp4",
+        consentMode: "meeting",
+        consentAcknowledged: true,
+        transcriptText: "We decided to test local analysis.",
+        segments: [{ startMs: 0, endMs: 1200, text: "We decided to test local analysis." }],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ source: { id: string; transcriptStatus?: string }; recordingSession?: { client: string }; transcript: { segments: Array<{ text: string }> }; deduplicated: boolean }>();
+    createdSourceIDs.push(body.source.id);
+    expect(body.deduplicated).toBe(false);
+    expect(body.source.transcriptStatus).toBe("ready");
+    expect(body.recordingSession?.client).toBe("native");
+    expect(body.transcript.segments[0].text).toMatch(/local analysis/);
+
+    const retry = await app.inject({
+      method: "POST",
+      url: "/api/recordings/local-transcript",
+      headers: { cookie },
+      payload: { clientRecordingId, title: "Local meeting", transcriptText: "Different text", durationMs: 1200, consentMode: "meeting", consentAcknowledged: true },
+    });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json<{ deduplicated: boolean }>().deduplicated).toBe(true);
+  });
 });

@@ -13,8 +13,10 @@ Native SwiftUI capture client for the existing Noted API.
 
 ```bash
 xcodegen generate --spec project.yml
-open MemoryGarden.xcodeproj
+open Noted.xcodeproj
 ```
+
+For the stable distribution path, use the shared `Noted` scheme in Xcode Cloud and choose the latest non-beta Xcode runner. The App Store listing name is `Noted by Shepswork.`; the in-app and Xcode product name is `Noted`. The repository-side checks and App Store Connect setup are documented in [`docs/APPLE_WATCH_XCODE_CLOUD.md`](../../docs/APPLE_WATCH_XCODE_CLOUD.md).
 
 The editable Debug configuration defaults to the Mac's Tailscale address (`http://100.122.189.114:3333`) so the physical iPhone can reach the API over Tailscale. Change only the address in `apps/ios/Config/Debug.xcconfig` when using another Mac, LAN, or local simulator setup, using the xcconfig-safe form such as `API_BASE_URL = http:/$()/192.168.1.20:3333`. Ensure the phone can reach that address before launching the app.
 
@@ -37,7 +39,7 @@ The current workspace `.env` sets the password to `memory`. If `AUTH_PASSWORD` i
 - Recordings are written to Application Support before upload.
 - Uploads retain the local file until the API acknowledges the Source.
 - A client recording UUID makes retries idempotent.
-- Recordings are sent individually from their meeting detail screen. Failed sends remain local and can be retried from that same recording; reconnecting or refreshing never sends the rest automatically. A stale recording draft is surfaced as Recovered instead of being hidden.
+- Recordings are sent individually from their meeting detail screen. Failed sends remain local and can be retried from that same recording; reconnecting or refreshing never sends the rest automatically. A local audio file can also be shared through AirDrop or Files for on-device Mac transcription without uploading it to Noted. A stale recording draft is surfaced as Recovered instead of being hidden.
 - Audio uses M4A/AAC at 44.1 kHz mono and the audio background mode is enabled.
 - Mark Moments are persisted locally and shown on playback.
 

@@ -108,6 +108,32 @@ async function createVoiceSource(env: Env, data: { title: string; clientRecordin
   return { source: await currentSource(env, sourceId), deduplicated: false };
 }
 
+async function createLocalTranscriptSource(env: Env, data: {
+  title: string;
+  clientRecordingId: string;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  mimeType: string;
+  consentMode: string;
+  consentAcknowledged: boolean;
+  transcriptText: string;
+  segments: Array<{ startMs: number; endMs: number; text: string }>;
+}) {
+  const existing = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE client_recording_id = ?", data.clientRecordingId);
+  if (existing) return { source: sourceFromRow(existing), deduplicated: true };
+  const sourceId = id(); const sessionId = id(); const timestamp = now();
+  const metadata = JSON.stringify({ client: "mac-local-agent", clientRecordingId: data.clientRecordingId, rawAudioStored: false });
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare("INSERT INTO sources (id, client_recording_id, type, title, original_text, extracted_text, captured_at, created_at, updated_at, processing_status, transcript_status, metadata_json, file_key, mime_type, audio_mime_type, duration_ms, consent_mode, consent_acknowledged, recording_session_id, transcript_text) VALUES (?, ?, 'voice', ?, '', ?, ?, ?, ?, 'pending', 'ready', ?, NULL, ?, ?, ?, ?, ?, ?, ?)").bind(sourceId, data.clientRecordingId, data.title || `Recording — ${data.startedAt}`, data.transcriptText, data.startedAt, timestamp, timestamp, metadata, data.mimeType, data.mimeType, data.durationMs, data.consentMode, data.consentAcknowledged ? 1 : 0, sessionId, data.transcriptText),
+    env.DB.prepare("INSERT INTO recording_sessions (id, source_id, status, started_at, ended_at, duration_ms, mime_type, client, consent_mode, consent_acknowledged, metadata_json) VALUES (?, ?, 'transcribed', ?, ?, ?, ?, 'mac-local-agent', ?, ?, ?)").bind(sessionId, sourceId, data.startedAt, data.endedAt, data.durationMs, data.mimeType, data.consentMode, data.consentAcknowledged ? 1 : 0, metadata),
+    ...data.segments.map((segment, index) => env.DB.prepare("INSERT INTO transcript_segments (id, source_id, segment_index, start_ms, end_ms, text, speaker, confidence, words_json) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)").bind(id(), sourceId, index, segment.startMs, segment.endMs, segment.text)),
+  ];
+  await env.DB.batch(statements);
+  await enqueue(env, sourceId);
+  return { source: await currentSource(env, sourceId), deduplicated: false };
+}
+
 async function createTextSource(env: Env, data: { type: string; title: string; originalText: string; sourceUrl?: string; metadata?: Record<string, unknown> }) {
   const sourceId = id();
   const timestamp = now();
@@ -136,6 +162,8 @@ async function processSource(env: Env, sourceId: string) {
       const sourceText = text(source.extracted_text) || text(source.original_text);
       if (!sourceText) throw new Error("This source has no text to process.");
       await analyzeAndSave(env, source, sourceText, []);
+      await run(env.DB, "UPDATE sources SET transcript_status = CASE WHEN type = 'voice' THEN 'ready' ELSE transcript_status END, processing_status = 'ready', updated_at = ? WHERE id = ?", now(), sourceId);
+      await run(env.DB, "UPDATE jobs SET status = 'complete', updated_at = ? WHERE source_id = ? AND status = 'processing'", now(), sourceId);
       return;
     }
     const object = await env.AUDIO_BUCKET.get(String(source.file_key));
@@ -166,7 +194,7 @@ async function processSource(env: Env, sourceId: string) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Processing failed";
     await run(env.DB, "UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE source_id = ? AND status = 'processing'", message, now(), sourceId);
-    await run(env.DB, "UPDATE sources SET processing_status = 'partial', processing_error = ?, transcript_status = CASE WHEN transcript_text IS NULL OR transcript_text = '' THEN 'failed' ELSE transcript_status END, updated_at = ? WHERE id = ?", message, now(), sourceId);
+    await run(env.DB, "UPDATE sources SET processing_status = 'partial', processing_error = ?, transcript_status = CASE WHEN transcript_text IS NULL OR transcript_text = '' THEN 'failed' ELSE 'ready' END, updated_at = ? WHERE id = ?", message, now(), sourceId);
     throw error;
   }
 }
@@ -232,6 +260,36 @@ async function handleRequest(request: Request, env: Env) {
     return json({ ok: true }, { headers: { "set-cookie": cookie("", 0) } });
   }
   if (!(await isAuthed(env, request))) return json({ error: "Authentication required" }, { status: 401 });
+
+  if (path === "/api/recordings/local-transcript" && request.method === "POST") {
+    const body = await request.json().catch(() => ({})) as any;
+    const transcriptText = text(body.transcriptText ?? body.text);
+    const clientRecordingId = text(body.clientRecordingId);
+    if (!clientRecordingId) return json({ error: "clientRecordingId is required" }, { status: 400 });
+    if (!transcriptText) return json({ error: "Transcript text is required" }, { status: 400 });
+    if (new TextEncoder().encode(transcriptText).byteLength > 5 * 1024 * 1024) return json({ error: "Transcript exceeds the 5 MB limit." }, { status: 413 });
+    const consentMode = text(body.consentMode) || "private_thought";
+    const consentAcknowledged = Boolean(body.consentAcknowledged);
+    if ((consentMode === "conversation" || consentMode === "meeting") && !consentAcknowledged) return json({ error: "Consent acknowledgement is required for conversation or meeting mode" }, { status: 400 });
+    const segments = Array.isArray(body.segments) ? body.segments.map((segment: any) => {
+      const startMs = Math.max(0, Math.trunc(Number(segment?.startMs) || 0));
+      const endMs = Math.max(startMs, Math.trunc(Number(segment?.endMs) || startMs));
+      return { startMs, endMs, text: text(segment?.text) };
+    }).filter((segment: { text: string }) => segment.text).slice(0, 10_000) : [];
+    const created = await createLocalTranscriptSource(env, {
+      title: text(body.title) || "Local Recording",
+      clientRecordingId,
+      startedAt: text(body.startedAt) || now(),
+      endedAt: text(body.endedAt) || now(),
+      durationMs: Math.max(0, Math.trunc(Number(body.durationMs) || 0)),
+      mimeType: text(body.mimeType) || "application/octet-stream",
+      consentMode,
+      consentAcknowledged,
+      transcriptText,
+      segments,
+    });
+    return json({ source: created.source, deduplicated: created.deduplicated, rawAudioStored: false });
+  }
 
   if (path === "/api/capture/note" && request.method === "POST") {
     const body = await request.json().catch(() => ({})) as any;
