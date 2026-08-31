@@ -60,12 +60,65 @@ targets:
     sources:
       - path: WatchRecorder
       - path: WatchConnectivity
+    resources:
+      - path: WatchRecorder/Assets.xcassets
+      - path: WatchRecorder/AppIcon24x24@2x.png
+      - path: WatchRecorder/AppIcon27.5x27.5@2x.png
+      - path: WatchRecorder/AppIcon29x29@2x.png
+      - path: WatchRecorder/AppIcon29x29@3x.png
+      - path: WatchRecorder/AppIcon40x40@2x.png
+      - path: WatchRecorder/AppIcon44x44@2x.png
+      - path: WatchRecorder/AppIcon46x46@2x.png
+      - path: WatchRecorder/AppIcon50x50@2x.png
+      - path: WatchRecorder/AppIcon51x51@2x.png
+      - path: WatchRecorder/AppIcon54x54@2x.png
+      - path: WatchRecorder/AppIcon86x86@2x.png
+      - path: WatchRecorder/AppIcon98x98@2x.png
+      - path: WatchRecorder/AppIcon108x108@2x.png
+      - path: WatchRecorder/AppIcon117x117@2x.png
+      - path: WatchRecorder/AppIcon129x129@2x.png
     info:
       path: WatchRecorder/Info.plist
       properties:
         CFBundleDisplayName: Noted Spike
         CFBundleName: Noted Spike
         CFBundlePackageType: APPL
+        CFBundleIconName: AppIcon
+        CFBundleIconFiles:
+          - AppIcon24x24@2x.png
+          - AppIcon27.5x27.5@2x.png
+          - AppIcon29x29@2x.png
+          - AppIcon29x29@3x.png
+          - AppIcon40x40@2x.png
+          - AppIcon44x44@2x.png
+          - AppIcon46x46@2x.png
+          - AppIcon50x50@2x.png
+          - AppIcon51x51@2x.png
+          - AppIcon54x54@2x.png
+          - AppIcon86x86@2x.png
+          - AppIcon98x98@2x.png
+          - AppIcon108x108@2x.png
+          - AppIcon117x117@2x.png
+          - AppIcon129x129@2x.png
+        CFBundleIcons:
+          CFBundlePrimaryIcon:
+            CFBundleIconFiles:
+              - AppIcon24x24@2x.png
+              - AppIcon27.5x27.5@2x.png
+              - AppIcon29x29@2x.png
+              - AppIcon29x29@3x.png
+              - AppIcon40x40@2x.png
+              - AppIcon44x44@2x.png
+              - AppIcon46x46@2x.png
+              - AppIcon50x50@2x.png
+              - AppIcon51x51@2x.png
+              - AppIcon54x54@2x.png
+              - AppIcon86x86@2x.png
+              - AppIcon98x98@2x.png
+              - AppIcon108x108@2x.png
+              - AppIcon117x117@2x.png
+              - AppIcon129x129@2x.png
+            CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
@@ -78,6 +131,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.watchkitapp
         PRODUCT_NAME: Noted Watch Spike
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         WATCHOS_DEPLOYMENT_TARGET: "11.0"
         TARGETED_DEVICE_FAMILY: "4"
