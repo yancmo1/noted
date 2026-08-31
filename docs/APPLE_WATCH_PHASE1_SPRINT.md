@@ -238,6 +238,7 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Full shared-scheme Cloud-style test action passed: 21 unit tests and 1 UI launch test passed on the iOS Simulator; the simulator accessibility duplicate warning is from the installed runtime and is unrelated to the app.
 - 2026-08-31 — Renamed the iOS project, app target, source/test modules, shared archive scheme, generated app product, Cloud manifest, Cloud scripts, and distribution docs from MemoryGarden to Noted. Compatibility identifiers for the existing App Store app, App Group, local recording folder, and Keychain service remain unchanged.
 - 2026-08-31 — Renamed-project verification passed: 22 simulator tests passed (21 unit tests plus the UI launch test), the generic `Noted Watch Spike` build passed, and an unsigned Release archive passed the Cloud post-archive check with `Noted.app/Watch/Noted Watch Spike.app` present. App Store Connect/TestFlight execution remains pending.
+- 2026-08-31 — Xcode Cloud recovery: removed the checked-in manifest binding to deleted product `a9b9067e-...`; the project now has no stale product ID and is ready for fresh Cloud product discovery. The fix must be pushed before retrying setup.
 
 ## Current blockers
 

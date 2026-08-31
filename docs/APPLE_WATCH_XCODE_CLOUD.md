@@ -16,6 +16,8 @@ The repository is prepared for a stable Xcode Cloud archive of the iPhone app wi
 
 The project and both shared schemes are present in the repository so Xcode Cloud can build without installing XcodeGen. The post-clone script validates that the checked-in project contains the iPhone and Watch targets. The pre-build script fails a Cloud action if the selected runner reports a beta Xcode version or if an archive uses the Watch-only scheme. The post-build script verifies that a successful archive contains the embedded Watch app.
 
+If an Xcode Cloud product is deleted, remove any stale `xcshareddata/xcodecloud/manifest.json` that points to the deleted product before starting setup again. Xcode should then discover a fresh product from the explicit bundle identifier and shared scheme.
+
 ## One-time App Store Connect setup
 
 1. Commit and push the repository changes, then connect the GitHub repository and select the branch containing them. Xcode Cloud builds a checked-out Git commit; it cannot see uncommitted local changes.
