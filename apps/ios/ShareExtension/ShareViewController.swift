@@ -41,7 +41,7 @@ final class ShareViewController: UIViewController {
         guard let item = extensionContext?.inputItems.first as? NSExtensionItem,
               let provider = item.attachments?.first,
               let typeIdentifier = supportedTypeIdentifier(for: provider) else {
-            await showFailure("Noted could not find an audio file in this share.")
+            showFailure("Noted could not find an audio file in this share.")
             return
         }
 
@@ -57,7 +57,7 @@ final class ShareViewController: UIViewController {
             try? await Task.sleep(for: .milliseconds(900))
             extensionContext?.completeRequest(returningItems: nil)
         } catch {
-            await showFailure("Noted could not save this recording. \(error.localizedDescription)")
+            showFailure("Noted could not save this recording. \(error.localizedDescription)")
         }
     }
 

@@ -30,6 +30,14 @@ npm run dev:api:local
 
 The Mac transcriber’s “Send transcript to Noted” sheet includes a “Use Local Mac” shortcut for `http://127.0.0.1:3333`. The existing Groq settings remain available through the normal `npm run dev:api` command.
 
+To keep the MacBook local stack available after login or restart, install the user-level services once:
+
+```bash
+./scripts/macos/install-local-services.sh
+```
+
+This supervises Ollama on `127.0.0.1:11434` and the local Noted API on port `3333`; the iOS Debug configuration reaches that API through the MacBook’s Tailscale address. Whisper remains an on-demand local command used by Noted Transcriber for each job, so it does not need a permanent listener or network exposure.
+
 ## Cloudflare deployment target
 
 The `cloudflare/` directory contains the separate Worker + D1 + R2 + Queues deployment target. It does not alter the local JSON/filesystem server or its recordings. Follow [`cloudflare/README.md`](cloudflare/README.md) only after creating the Cloudflare resources and verifying the migration/import plan; the iOS client keeps a local-server upload fallback during this transition.
