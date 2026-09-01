@@ -173,6 +173,7 @@ Evidence location: <log, screenshot, or test note path>
 | Local replacement Watch recorder startup | PASS | Development-signed physical Watch recording completed after switching to default audio-session mode | Proceed to background, endurance, and retry testing |
 | Watch recording visible on iPhone | PASS | Signed iPhone build imported the acknowledged Watch file as `Watch Recording` with `Not Sent` status | iPhone library import is wired; server upload remains user-controlled |
 | Watch playback payload alignment | PASS locally / physical confirmation pending | Durable Watch payloads measure 17.7 s, 25.3 s, and 190.0 s; the iPhone importer previously reused one 2.8 s file and now writes a source-specific file plus repairs old entries | Keep duration metadata and playback URLs tied to the same source ID |
+| Extended foreground Watch run | PASS | Connected Watch history records a 190.07-second acknowledged capture from `in:MicrophoneBuiltIn:`; the matching iPhone payload measures 190.01 seconds | Single-file foreground capture and transfer are viable; endurance/background behavior remains open |
 
 ## Code-level recovery rule
 
@@ -259,6 +260,7 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Added regression coverage for importing a validated Watch receipt into the existing local-recordings library, including duration, marker, state, and payload preservation; the iPhone suite now passes 22 tests.
 - 2026-08-31 — Diagnosed the reported short-playback failure: all Watch imports had been assigned the literal filename `(manifest.sourceID.uuidString).m4a`, so the list duration came from the new manifest while playback opened an older 2.8-second payload. Watch transfer files were verified intact, the importer now uses the source UUID filename, existing affected entries are repaired from durable receipts at launch, and the iPhone suite passes 23 tests.
 - 2026-08-31 — Hardened TestFlight companion delivery: the Cloud archive now applies one build number to the iPhone, embedded Watch app, and extension, then fails if the iPhone and Watch marketing/build versions diverge. This prevents a phone update from silently retaining an older companion Watch binary.
+- 2026-08-31 — Captured connected-device evidence for the extended foreground run: Watch metadata reports 190.070 seconds, built-in microphone route, and durable acknowledgement; the matching iPhone M4A reports 190.012 seconds. This does not substitute for wrist-down, four-hour, interruption, retry, or locked-phone tests.
 
 ## Current blockers
 
