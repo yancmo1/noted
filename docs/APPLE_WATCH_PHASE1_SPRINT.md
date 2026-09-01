@@ -18,7 +18,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 - Timing safeguard: active elapsed time and marker offsets use monotonic system uptime when available, avoiding wall-clock changes during a recording.
 - Local capture safeguards: implemented low-storage/low-battery warnings, critical-storage finalization, empty-file transfer rejection, protocol-version validation, serialized receiver ingestion, repair of a corrupted durable copy on a verified retry, revalidation before acknowledgement reissue, explicit recorder lifecycle plus native-transfer failure versus durable-acknowledgement states, relaunch-time acknowledgement status reconciliation, a backup Watch record index, recovery of unindexed retained audio files, and a dedicated Watch connectivity coordinator.
 - Watch history: implemented timestamped entries with retry and explicitly confirmed delete; deleting an unacknowledged item shows “This recording has not been copied to your iPhone.” and retains metadata/audio if persistence or cleanup fails.
-- Watch audio background mode: declared in the spike target; real wrist-down/background behavior remains a physical test.
+- Watch audio background mode: declared in the spike target; the core physical wrist-down/display-sleep run is now confirmed on the development-signed Series 11. Connectivity variants remain follow-up coverage.
 - Recovery rule: documented and implemented at the spike boundary; incomplete local files become visible interrupted/failed records, retained audio is retryable, and Watch audio is deleted only after a persisted durable acknowledgement. Single-file versus segmented architecture remains a physical-test decision.
 - Latest verification: the shared iOS build, generic Watch build, watchOS Simulator build, signed iPhone device build/install/launch, and signed physical-Watch build/install/launch all pass locally. The Watch UDID was registered during the latest local provisioning retry. A physical Watch recording completed, transferred, was acknowledged, and appeared in the iPhone's local Recordings list. A forensic check then found that the iPhone importer had pointed multiple Watch entries at one literal 2.8-second filename; the durable Watch payloads themselves were full length, including a 190-second recording.
 - Remote-start API investigation: the installed watchOS SDK exposes `AudioRecordingIntent`; adopting it still requires the real-device Live Activity/recording-indicator gate, so no unsupported remote-start behavior has been added to the spike.
@@ -61,9 +61,10 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 
 ### B. Independent Watch recording
 
-- [ ] **B1 — Background and wrist-down recording.**
+- [x] **B1 — Background and wrist-down recording.**
   - Verify recording continues with the display asleep, wrist down, and the app no longer visually foregrounded where watchOS permits.
   - Repeat with iPhone nearby, out of Bluetooth range, powered off, and Watch Wi-Fi only where practical.
+  - Core wrist-down/display-sleep scenario passed; the optional phone-connectivity variants remain open.
 - [ ] **B2 — Endurance path.**
   - Run a shorter endurance test first, then the required four-hour continuous test.
   - Capture battery, file size, temperature/thermal observations, interruptions, and whether the file is playable after stop.
@@ -162,7 +163,7 @@ Evidence location: <log, screenshot, or test note path>
 
 | Spike | Result | Evidence | Decision |
 |---|---|---|---|
-| Watch background / wrist-down | Pending | — | — |
+| Watch background / wrist-down | PASS (core scenario) | User-confirmed physical Series 11 run continued through wrist-down/display sleep and transferred for full iPhone playback; connectivity variants remain untested | Proceed to endurance and connectivity-variant testing |
 | Four-hour endurance | Pending | — | — |
 | Codec comparison | Pending | — | — |
 | Interrupted-file recoverability | Pending | — | — |
@@ -261,6 +262,7 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Diagnosed the reported short-playback failure: all Watch imports had been assigned the literal filename `(manifest.sourceID.uuidString).m4a`, so the list duration came from the new manifest while playback opened an older 2.8-second payload. Watch transfer files were verified intact, the importer now uses the source UUID filename, existing affected entries are repaired from durable receipts at launch, and the iPhone suite passes 23 tests.
 - 2026-08-31 — Hardened TestFlight companion delivery: the Cloud archive now applies one build number to the iPhone, embedded Watch app, and extension, then fails if the iPhone and Watch marketing/build versions diverge. This prevents a phone update from silently retaining an older companion Watch binary.
 - 2026-08-31 — Captured connected-device evidence for the extended foreground run: Watch metadata reports 190.070 seconds, built-in microphone route, and durable acknowledgement; the matching iPhone M4A reports 190.012 seconds. This does not substitute for wrist-down, four-hour, interruption, retry, or locked-phone tests.
+- 2026-08-31 — User confirmed the core physical wrist-down/display-sleep run: recording continued, transferred, and played fully on iPhone. B1 is passed for the core scenario; phone-nearby/out-of-range/powered-off/Wi-Fi-only variants remain optional follow-up coverage.
 
 ## Current blockers
 
