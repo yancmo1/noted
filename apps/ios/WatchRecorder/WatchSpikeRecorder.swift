@@ -53,7 +53,11 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     @Published private(set) var records: [WatchSpikeRecord] = []
     @Published private(set) var message: String?
     @Published private(set) var resourceWarnings: [String] = []
-    @Published var selectedProfile: WatchAudioProfile = .speech24
+    // 16 kHz AAC is the documented Watch speech profile and is the safest
+    // default across physical watchOS audio routes. The higher-rate profiles
+    // remain available for comparison, with startup fallback below if a route
+    // rejects their recorder settings.
+    @Published var selectedProfile: WatchAudioProfile = .speech16
     @Published var isStopConfirmationPresented = false
     @Published var isDeleteConfirmationPresented = false
 
@@ -128,16 +132,8 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .spokenAudio, options: [])
-            try session.setActive(true)
-            let profile = selectedProfile.format
-            let settings: [String: Any] = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: profile.sampleRate,
-                AVNumberOfChannelsKey: profile.channels,
-                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-                AVEncoderBitRateKey: profile.bitrate
-            ]
-            let recorder = try AVAudioRecorder(url: fileURL, settings: settings)
+            try await activateAudioSession(session)
+            let (recorder, recordingProfile) = try makePreparedRecorder(at: fileURL)
             recorder.delegate = self
 
             let record = WatchSpikeRecord(
@@ -147,7 +143,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 startedAt: startDate,
                 endedAt: nil,
                 duration: 0,
-                profile: selectedProfile,
+                profile: recordingProfile,
                 state: .local,
                 lifecycleState: .preparing,
                 byteSize: 0,
@@ -166,7 +162,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             )
             records.insert(record, at: 0)
             try saveRecords()
-            guard recorder.prepareToRecord(), recorder.record() else { throw WatchSpikeError.couldNotStart }
+            guard recorder.record() else { throw WatchSpikeError.couldNotStart }
             self.recorder = recorder
             activeID = id
             startedAt = startDate
@@ -180,7 +176,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             isRecording = true
             WKInterfaceDevice.current().play(.start)
             startTicker()
-            logger.info("Recording started source=\(id.uuidString, privacy: .public) profile=\(self.selectedProfile.rawValue, privacy: .public)")
+            logger.info("Recording started source=\(id.uuidString, privacy: .public) profile=\(recordingProfile.rawValue, privacy: .public) sessionSampleRate=\(session.sampleRate, privacy: .public)")
         } catch {
             try? session.setActive(false)
             if let index = records.firstIndex(where: { $0.id == id }) {
@@ -407,8 +403,15 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             return
         }
 
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.resumeAfterInterruption()
+        }
+    }
+
+    private func resumeAfterInterruption() async {
         do {
-            try AVAudioSession.sharedInstance().setActive(true)
+            try await activateAudioSession(AVAudioSession.sharedInstance())
             guard recorder?.record() == true else { throw WatchSpikeError.couldNotResume }
             if let activeID, let index = records.firstIndex(where: { $0.id == activeID }) {
                 records[index].state = .local
@@ -449,6 +452,60 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         @unknown default:
             return false
         }
+    }
+
+    private func activateAudioSession(_ session: AVAudioSession) async throws {
+        if #available(watchOS 5.0, *) {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                session.activate(options: []) { activated, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if activated {
+                        continuation.resume(returning: ())
+                    } else {
+                        continuation.resume(throwing: WatchSpikeError.audioSessionActivationFailed)
+                    }
+                }
+            }
+        } else {
+            try session.setActive(true)
+        }
+    }
+
+    private func makePreparedRecorder(at fileURL: URL) throws -> (AVAudioRecorder, WatchAudioProfile) {
+        let requestedProfile = selectedProfile
+        var candidates = [requestedProfile]
+        if requestedProfile != .speech16 {
+            candidates.append(.speech16)
+        }
+
+        var lastError: Error?
+        for profile in candidates {
+            do {
+                let format = profile.format
+                let settings: [String: Any] = [
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channels,
+                    AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+                    AVEncoderBitRateKey: format.bitrate
+                ]
+                let recorder = try AVAudioRecorder(url: fileURL, settings: settings)
+                guard recorder.prepareToRecord() else {
+                    throw WatchSpikeError.couldNotPrepare(profile)
+                }
+                if profile != requestedProfile {
+                    logger.error("Selected Watch audio profile was rejected; using fallback profile=\(profile.rawValue, privacy: .public) requested=\(requestedProfile.rawValue, privacy: .public)")
+                }
+                return (recorder, profile)
+            } catch {
+                lastError = error
+                try? fileManager.removeItem(at: fileURL)
+                logger.error("Watch audio profile setup failed profile=\(profile.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        throw lastError ?? WatchSpikeError.couldNotStart
     }
 
     private func reconcileOutstandingTransfers() {
@@ -863,6 +920,8 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
 enum WatchSpikeError: LocalizedError {
     case couldNotStart
     case couldNotResume
+    case couldNotPrepare(WatchAudioProfile)
+    case audioSessionActivationFailed
     case recordNotFinalized
     case emptyRecording
     case connectivityUnavailable
@@ -871,6 +930,8 @@ enum WatchSpikeError: LocalizedError {
         switch self {
         case .couldNotStart: "The Watch recorder could not start."
         case .couldNotResume: "The Watch recorder could not resume after an interruption."
+        case .couldNotPrepare(let profile): "The Watch audio profile \(profile.rawValue) is not supported on the current audio route."
+        case .audioSessionActivationFailed: "The Watch microphone session could not be activated."
         case .recordNotFinalized: "The Watch recording is not finalized yet."
         case .emptyRecording: "The Watch recording contains no audio to transfer."
         case .connectivityUnavailable: "WatchConnectivity is unavailable on this device."

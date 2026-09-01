@@ -12,7 +12,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 
 - Repository audit: complete.
 - Physical test inventory: complete.
-- Watch target and spike harness: complete for simulator and generic physical-device builds; physical install pending.
+- Watch target and spike harness: complete for simulator and generic physical-device builds; the current TestFlight build is installed on the paired iPhone and Watch, with physical recorder startup now under investigation.
 - Simulator runtime smoke: Watch spike and embedded iPhone host both install and launch successfully on the watchOS/iOS 27 simulators.
 - Structured spike evidence: implemented for timing, format, file size, checksum, marks, transfer state, battery snapshots, route snapshots, and interruption reason.
 - Timing safeguard: active elapsed time and marker offsets use monotonic system uptime when available, avoiding wall-clock changes during a recording.
@@ -27,9 +27,10 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 - Integration note: [APPLE_WATCH_IMPLEMENTATION_NOTE.md](APPLE_WATCH_IMPLEMENTATION_NOTE.md).
 - Remote-start note: [APPLE_WATCH_PHASE1_REMOTE_START.md](APPLE_WATCH_PHASE1_REMOTE_START.md).
 - Xcode Cloud/TestFlight setup: [APPLE_WATCH_XCODE_CLOUD.md](APPLE_WATCH_XCODE_CLOUD.md).
-- Xcode Cloud validation: the checked-in project now passes post-clone target/scheme validation, the stable-runner guard rejects the local beta Xcode, the post-archive check verifies the embedded Watch app, and an unsigned Release archive contains it. The Watch target now also has aligned `1.0` marketing-version metadata, a compiled `AppIcon` catalog, and explicit icon plist entries; standalone Watch and embedded iOS archive checks pass locally. Cloud distribution and TestFlight processing remain pending.
+- Xcode Cloud validation: the checked-in project now passes post-clone target/scheme validation, the stable-runner guard rejects the local beta Xcode, the post-archive check verifies the embedded Watch app, and an unsigned Release archive contains it. The Watch target now also has aligned `1.0` marketing-version metadata, a compiled `AppIcon` catalog, and explicit icon plist entries; standalone Watch and embedded iOS archive checks pass locally. The current Cloud/TestFlight distribution has installed on both paired devices; the replacement audio fix is the next Cloud build.
+- Physical TestFlight smoke: the latest Cloud/TestFlight build installed on both the paired iPhone and Apple Watch. Launch succeeds, but starting a Watch recording reports `OSStatus error -50`; this is a physical audio-session/recorder startup failure, not an install or Watch embedding failure.
 - Current local processing path: the MacBook at `100.122.189.114` runs the Noted API and Ollama under restart-safe launch agents. The API is reachable on port `3333`, Ollama is healthy on its local port, and Whisper remains an on-demand local transcription binary rather than a permanent network listener. `ubuntumac` is not part of the current Noted path.
-- Physical-device evidence: the iPhone launch prerequisite is verified; local direct Watch installation remains blocked by device registration, while the TestFlight route is prepared pending App Store Connect/Xcode Cloud setup and a signed archive.
+- Physical-device evidence: the iPhone and Watch TestFlight installation path is verified. The first physical Watch recording attempt fails at audio startup with `OSStatus error -50`; the next build uses asynchronous audio-session activation, defaults to the documented 16 kHz speech profile, and falls back to 16 kHz if a selected higher-rate profile is rejected.
 - Current architectural decision: pending the spikes below.
 
 ## Baseline captured during audit
@@ -135,7 +136,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
   - The App Store bundle ID remains `com.shepswork.noted` so App Store Connect treats this as an update to the existing app.
 - [x] **H2 — Embed the Noted Watch Spike in the iPhone archive.**
   - The `Noted` target depends on `Noted Watch Spike` and includes an `Embed Watch Content` phase; the unsigned Release archive contains `Noted.app/Watch/Noted Watch Spike.app`.
-- [ ] **H3 — Run the stable Xcode Cloud Archive and install through TestFlight.**
+- [x] **H3 — Run the stable Xcode Cloud Archive and install through TestFlight.**
   - Requires the repository commit on the connected branch, App Store Connect identifiers/signing, and a stable non-beta Xcode Cloud runner.
 
 ## Evidence note template
@@ -167,6 +168,7 @@ Evidence location: <log, screenshot, or test note path>
 | Physical `transferFile` | Pending | — | — |
 | Durable acknowledgement | Pending | — | — |
 | Dual-source remote start | Pending | `docs/APPLE_WATCH_PHASE1_REMOTE_START.md` | Real-device locked-phone test still required |
+| TestFlight Watch recorder startup | FAIL | Physical TestFlight install; Watch displays `OSStatus error -50` when recording starts | Replace the audio-session/recorder startup path before transfer and endurance testing |
 
 ## Code-level recovery rule
 
@@ -245,14 +247,15 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Removed the two stale `iPhone Developer` identities from the iOS Release configurations and fixed the two unnecessary `await` warnings in ShareExtension. The local focused ShareExtension build is warning-free.
 - 2026-08-31 — Added restart-safe MacBook launch agents for Ollama supervision and the local Noted API, with logs under `~/Library/Logs/Noted`. Verified Ollama health, API health at `100.122.189.114:3333`, real local LLM mode using `gpt-oss:20b`, and configured Groq transcription status.
 - 2026-08-31 — App Store Connect rejected Build 5 because the Watch bundle still declared version `0.1` and had no icon metadata. Aligned the Watch and iPhone marketing version at `1.0`, added the Watch `AppIcon` catalog plus explicit icon plist entries, and verified both the standalone Watch build and embedded iOS archive locally. The replacement Cloud build is pending.
+- 2026-08-31 — The Cloud/TestFlight build installed on the paired iPhone and Watch, but physical Watch recording startup reported `OSStatus error -50`. Updated Watch audio startup to use asynchronous session activation, default to the documented 16 kHz speech profile, and fall back to 16 kHz when a selected profile is rejected; standalone Watch build and embedded iOS archive both pass locally.
 
 ## Current blockers
 
-- **Xcode Cloud/TestFlight export:** the `Noted by Shepswork` app record, workflow, stable `Latest Release` runner, shared `Noted` archive scheme, and all three identifiers are in place. The Watch version/icon rejection is fixed and locally verified; the next gate is a successful managed-signing export and TestFlight processing from the connected `dev` branch.
+- **Xcode Cloud/TestFlight export:** the `Noted by Shepswork` app record, workflow, stable `Latest Release` runner, shared `Noted` archive scheme, and all three identifiers are in place. The Watch version/icon rejection is fixed, the current Cloud/TestFlight build installed on both devices, and the next gate is a new managed-signing export containing the Watch audio startup fix.
 - **Cloud account session:** Build 5 compiled and exported all distribution variants with managed profiles, but the App Store Connect preparation step could not authenticate the Xcode Cloud session, so TestFlight did not run. If the replacement build repeats that failure, the remaining recovery step is in App Store Connect/Xcode Cloud account access rather than the app source.
 - **Future processing host:** `ubuntumac` (`100.105.31.42`) is intentionally out of scope for this sprint. Revisit it only after the MacBook/TestFlight path is installed and validated.
 - **Local development install (optional):** the direct signed Watch build still requires registering Watch UDID `00008310-001042C614F0E01E` and regenerating the development profile. This is not required for a TestFlight distribution build.
-- **Physical acceptance:** after the Cloud-signed build is installed, run the receiver/transfer flows. Permission prompts, wrist-down/background behavior, battery use, thermal behavior, audio-route behavior, and the full Phase 1 matrix still require hands-on physical testing.
+- **Physical acceptance:** the next Cloud-signed build must clear the Watch recorder startup error before receiver/transfer flows can be tested. Permission prompts, wrist-down/background behavior, battery use, thermal behavior, audio-route behavior, and the full Phase 1 matrix still require hands-on physical testing.
 
 ## Explicit Phase 1 non-goals
 
