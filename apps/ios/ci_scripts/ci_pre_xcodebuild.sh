@@ -21,6 +21,16 @@ scheme="${CI_XCODE_SCHEME:-unknown}"
 build_number="${CI_BUILD_NUMBER:-unknown}"
 echo "Xcode Cloud action=$action scheme=$scheme buildNumber=$build_number"
 
+if [[ "$action" == "archive" && "$build_number" =~ '^[0-9]+$' ]]; then
+  repository_path="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "${0:A:h}/../../.." && pwd)}"
+  ios_path="$repository_path/apps/ios"
+  (
+    cd "$ios_path"
+    agvtool new-version -all "$build_number"
+  )
+  echo "Synchronized iPhone, Watch, and extension bundle build numbers to Xcode Cloud build $build_number."
+fi
+
 if [[ "$action" == "archive" && "$scheme" != "unknown" && "$scheme" != "Noted" ]]; then
   echo "error: TestFlight archives must use the Noted scheme so the Watch app is embedded in the iOS app." >&2
   exit 1

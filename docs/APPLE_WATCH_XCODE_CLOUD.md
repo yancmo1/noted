@@ -27,6 +27,8 @@ If an Xcode Cloud product is deleted, remove any stale `xcshareddata/xcodecloud/
 5. Enable automatic signing / Xcode Cloud-managed signing for the workflow and distribute the successful archive to TestFlight internal testers.
 6. Start with the default Xcode Cloud build number. If App Store Connect reports a version/build collision, set the next Cloud build number in the app’s Xcode Cloud settings rather than hard-coding a timestamp or hash in the project.
 
+The archive pre-build script applies Xcode Cloud's numeric build number to every archived bundle, including the embedded Watch app. The post-build script then compares the iPhone and Watch marketing versions and build numbers inside the archive. This keeps a TestFlight iPhone update tied to a matching Watch update and fails the archive before delivery if the companion bundle drifts.
+
 ## First Cloud run
 
 Use an Archive action, not a Watch-only Build action. Confirm the archive contains `Noted.app/Watch/Noted Watch Spike.app`, wait for App Store Connect processing, then add the processed build to an internal TestFlight group. Install TestFlight on the paired iPhone, accept the invite, and install the Noted build; the embedded Watch app can then be installed from the Watch app on the iPhone.

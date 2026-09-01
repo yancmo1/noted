@@ -29,4 +29,20 @@ if [[ ! -d "$watch_app" ]]; then
   exit 1
 fi
 
+ios_marketing_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ios_app/Info.plist")
+watch_marketing_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$watch_app/Info.plist")
+ios_build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ios_app/Info.plist")
+watch_build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$watch_app/Info.plist")
+
+if [[ "$ios_marketing_version" != "$watch_marketing_version" ]]; then
+  echo "error: iOS marketing version $ios_marketing_version does not match embedded Watch marketing version $watch_marketing_version." >&2
+  exit 1
+fi
+
+if [[ "$ios_build_number" != "$watch_build_number" ]]; then
+  echo "error: iOS build $ios_build_number does not match embedded Watch build $watch_build_number." >&2
+  exit 1
+fi
+
 echo "Xcode Cloud archive validation passed: Noted.app contains Noted Watch Spike.app."
+echo "Xcode Cloud archive validation passed: iPhone and Watch marketing/build versions match ($ios_marketing_version/$ios_build_number)."
