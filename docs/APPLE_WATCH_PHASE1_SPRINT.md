@@ -68,6 +68,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 - [ ] **B2 — Endurance path.**
   - Run a shorter endurance test first, then the required four-hour continuous test.
   - Capture battery, file size, temperature/thermal observations, interruptions, and whether the file is playable after stop.
+  - The 30-minute pilot passed with approximately 2% battery loss; the required four-hour run is deferred by the user and remains an open risk sign-off.
 - [ ] **B3 — Permission and route behavior.**
   - Verify first-run microphone permission behavior and document the actual microphone route for nearby phone, remote phone, and connected Bluetooth audio.
 
@@ -164,7 +165,7 @@ Evidence location: <log, screenshot, or test note path>
 | Spike | Result | Evidence | Decision |
 |---|---|---|---|
 | Watch background / wrist-down | PASS (core scenario) | User-confirmed physical Series 11 run continued through wrist-down/display sleep and transferred for full iPhone playback; connectivity variants remain untested | Proceed to endurance and connectivity-variant testing |
-| Four-hour endurance | Pending | — | — |
+| Four-hour endurance | Pilot PASS / four-hour deferred | User-reported 30-minute physical run completed with approximately 2% Watch battery loss; projected consumption is about 16% over four hours, but the projection is not a substitute for measurement | Proceed with short retry/recovery tests; retain four-hour endurance as an explicit pre-release risk |
 | Codec comparison | Pending | — | — |
 | Interrupted-file recoverability | Pending | — | — |
 | Physical `transferFile` | PASS | Physical Watch recording appeared in iPhone local library after the replacement build | Watch-to-iPhone local handoff is viable |
@@ -263,13 +264,14 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Hardened TestFlight companion delivery: the Cloud archive now applies one build number to the iPhone, embedded Watch app, and extension, then fails if the iPhone and Watch marketing/build versions diverge. This prevents a phone update from silently retaining an older companion Watch binary.
 - 2026-08-31 — Captured connected-device evidence for the extended foreground run: Watch metadata reports 190.070 seconds, built-in microphone route, and durable acknowledgement; the matching iPhone M4A reports 190.012 seconds. This does not substitute for wrist-down, four-hour, interruption, retry, or locked-phone tests.
 - 2026-08-31 — User confirmed the core physical wrist-down/display-sleep run: recording continued, transferred, and played fully on iPhone. B1 is passed for the core scenario; phone-nearby/out-of-range/powered-off/Wi-Fi-only variants remain optional follow-up coverage.
+- 2026-09-01 — User reported a 30-minute physical Watch endurance pilot with approximately 2% battery loss. The pilot is positive evidence for the current single-file approach, but the required four-hour endurance result is deferred and remains a pre-release risk.
 
 ## Current blockers
 
 - **Xcode Cloud/TestFlight export:** the `Noted by Shepswork` app record, workflow, stable `Latest Release` runner, shared `Noted` archive scheme, and all three identifiers are in place. The Watch version/icon rejection is fixed, the current Cloud/TestFlight build installed on both devices, and the next gate is a new managed-signing export containing the physical Watch audio and iPhone import fixes.
 - **Cloud account session:** Build 5 compiled and exported all distribution variants with managed profiles, but the App Store Connect preparation step could not authenticate the Xcode Cloud session, so TestFlight did not run. If the replacement build repeats that failure, the remaining recovery step is in App Store Connect/Xcode Cloud account access rather than the app source.
 - **Future processing host:** `ubuntumac` (`100.105.31.42`) is intentionally out of scope for this sprint. Revisit it only after the MacBook/TestFlight path is installed and validated.
-- **Physical acceptance:** the core foreground Watch recording, physical `transferFile`, durable acknowledgement, and iPhone library import now pass locally. The short-playback importer bug is fixed and the affected phone entries were repaired locally, but playback on the physical phone must still be confirmed. Permission prompts, wrist-down/background behavior, battery use, thermal behavior, audio-route behavior, idempotent retry, and the full Phase 1 matrix still require hands-on physical testing. The latest fixes still need a new Cloud/TestFlight build before they can replace the older failing TestFlight binary.
+- **Physical acceptance:** the core foreground/background Watch recording, physical `transferFile`, durable acknowledgement, and iPhone library import now pass locally. A 30-minute endurance pilot passed with approximately 2% battery loss; the required four-hour result is deferred. The short-playback importer bug is fixed and the affected phone entries were repaired locally. Permission prompts, audio-route behavior, idempotent retry, interruption/power-loss recovery, remote-start feasibility, and the full Phase 1 matrix still require hands-on physical testing. The latest fixes still need a new Cloud/TestFlight build before they can replace the older failing TestFlight binary.
 
 ## Explicit Phase 1 non-goals
 
