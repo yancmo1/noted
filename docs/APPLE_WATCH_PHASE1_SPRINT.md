@@ -12,7 +12,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 
 - Repository audit: complete.
 - Physical test inventory: complete.
-- Watch target and spike harness: complete for simulator and generic physical-device builds; the current TestFlight build is installed on the paired iPhone and Watch, with physical recorder startup now under investigation.
+- Watch target and spike harness: complete for simulator and physical-device builds; the current local development-signed Watch build records successfully on the paired Watch.
 - Simulator runtime smoke: Watch spike and embedded iPhone host both install and launch successfully on the watchOS/iOS 27 simulators.
 - Structured spike evidence: implemented for timing, format, file size, checksum, marks, transfer state, battery snapshots, route snapshots, and interruption reason.
 - Timing safeguard: active elapsed time and marker offsets use monotonic system uptime when available, avoiding wall-clock changes during a recording.
@@ -20,17 +20,18 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 - Watch history: implemented timestamped entries with retry and explicitly confirmed delete; deleting an unacknowledged item shows “This recording has not been copied to your iPhone.” and retains metadata/audio if persistence or cleanup fails.
 - Watch audio background mode: declared in the spike target; real wrist-down/background behavior remains a physical test.
 - Recovery rule: documented and implemented at the spike boundary; incomplete local files become visible interrupted/failed records, retained audio is retryable, and Watch audio is deleted only after a persisted durable acknowledgement. Single-file versus segmented architecture remains a physical-test decision.
-- Latest verification: 21 iPhone unit tests and 1 iPhone UI launch test pass under the shared `Noted` scheme; the generic physical-watch build passes after the timestamped Watch-history change, the watchOS Simulator build/install/launch passes, and the signed iPhone device build/install passes. With both physical devices available again, `yPhone` reports unlocked since boot and `xcrun devicectl` launched Noted successfully. A local development-signed Watch build still fails before install because the Watch UDID is not registered; the Xcode Cloud/TestFlight path uses distribution signing and is tracked separately.
+- Latest verification: the shared iOS build, generic Watch build, watchOS Simulator build, signed iPhone device build/install/launch, and signed physical-Watch build/install/launch all pass locally. The Watch UDID was registered during the latest local provisioning retry. A physical Watch recording completed, transferred, was acknowledged, and appeared in the iPhone's local Recordings list. A forensic check then found that the iPhone importer had pointed multiple Watch entries at one literal 2.8-second filename; the durable Watch payloads themselves were full length, including a 190-second recording.
 - Remote-start API investigation: the installed watchOS SDK exposes `AudioRecordingIntent`; adopting it still requires the real-device Live Activity/recording-indicator gate, so no unsupported remote-start behavior has been added to the spike.
 - Remote-start fallback: prepared and documented as iPhone-first dual capture with an explicit `meetingID`; Watch-first capture remains independent if the phone cannot be legally remote-started.
 - Latest CoreDevice recheck: the paired Series 11 and `yPhone` are both available and paired; the older paired Series 9 remains unavailable. The iPhone lock-state query reports unlocked since boot, and a connected Noted launch succeeded. Pairing metadata is present, but no physical Watch behavior or transfer result is inferred because Watch provisioning still blocks installation.
 - Integration note: [APPLE_WATCH_IMPLEMENTATION_NOTE.md](APPLE_WATCH_IMPLEMENTATION_NOTE.md).
 - Remote-start note: [APPLE_WATCH_PHASE1_REMOTE_START.md](APPLE_WATCH_PHASE1_REMOTE_START.md).
 - Xcode Cloud/TestFlight setup: [APPLE_WATCH_XCODE_CLOUD.md](APPLE_WATCH_XCODE_CLOUD.md).
-- Xcode Cloud validation: the checked-in project now passes post-clone target/scheme validation, the stable-runner guard rejects the local beta Xcode, the post-archive check verifies the embedded Watch app, and an unsigned Release archive contains it. The Watch target now also has aligned `1.0` marketing-version metadata, a compiled `AppIcon` catalog, and explicit icon plist entries; standalone Watch and embedded iOS archive checks pass locally. The current Cloud/TestFlight distribution has installed on both paired devices; the replacement audio fix is the next Cloud build.
+- Xcode Cloud validation: the checked-in project now passes post-clone target/scheme validation, the stable-runner guard rejects the local beta Xcode, the post-archive check verifies the embedded Watch app, and an unsigned Release archive contains it. The Watch target now also has aligned `1.0` marketing-version metadata, a compiled `AppIcon` catalog, and explicit icon plist entries; standalone Watch and embedded iOS archive checks pass locally. The current Cloud/TestFlight distribution installed on both paired devices; a new Cloud build is still needed for the latest audio and transfer-import fixes.
 - Physical TestFlight smoke: the latest Cloud/TestFlight build installed on both the paired iPhone and Apple Watch. Launch succeeds, but starting a Watch recording reports `OSStatus error -50`; this is a physical audio-session/recorder startup failure, not an install or Watch embedding failure.
+- Local physical debugging: the Watch tunnel recovered after the provisioning retry. A development-signed Watch build installed and launched on the physical Series 11; the audio startup fix was verified by a successful recording.
 - Current local processing path: the MacBook at `100.122.189.114` runs the Noted API and Ollama under restart-safe launch agents. The API is reachable on port `3333`, Ollama is healthy on its local port, and Whisper remains an on-demand local transcription binary rather than a permanent network listener. `ubuntumac` is not part of the current Noted path.
-- Physical-device evidence: the iPhone and Watch TestFlight installation path is verified. The first physical Watch recording attempt fails at audio startup with `OSStatus error -50`; the next build uses asynchronous audio-session activation, defaults to the documented 16 kHz speech profile, and falls back to 16 kHz if a selected higher-rate profile is rejected.
+- Physical-device evidence: the iPhone and Watch TestFlight installation path is verified. The older TestFlight build still fails at audio startup with `OSStatus error -50`; the local replacement uses the default Watch recording mode, asynchronous activation, the documented 16 kHz speech profile, and profile fallback. The replacement successfully recorded on the physical Watch, transferred to iPhone, received a durable acknowledgement, and appeared as a local iPhone recording with status `Not Sent`. The importer repair is now installed locally; physical playback confirmation is still required before this row can be closed.
 - Current architectural decision: pending the spikes below.
 
 ## Baseline captured during audit
@@ -94,13 +95,13 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 
 ### E. Physical Watch-to-iPhone transfer and durable acknowledgement
 
-- [ ] **E1 — Prove physical `WCSession.transferFile`.**
+- [x] **E1 — Prove physical `WCSession.transferFile`.**
   - Transfer a finalized Watch recording from the paired Watch to the paired iPhone under normal conditions, with the iPhone locked/backgrounded where supported.
   - Test delayed connectivity, Bluetooth/Wi-Fi toggles, Watch app relaunch, and retry.
 - [x] **E2 — Implement or prototype the receiver durability boundary.**
   - Move/copy the received temporary file into Noted-owned durable storage before returning from the delegate callback.
   - Validate expected byte size and SHA-256 checksum.
-- [ ] **E3 — Prove application-level acknowledgement.**
+- [x] **E3 — Prove application-level acknowledgement.**
   - iPhone sends `durableAck` only after durable ingestion and stable metadata persistence.
   - Watch retains audio until that acknowledgement; lost acknowledgements must not cause early deletion.
 - [ ] **E4 — Prove idempotent retry.**
@@ -165,10 +166,13 @@ Evidence location: <log, screenshot, or test note path>
 | Four-hour endurance | Pending | — | — |
 | Codec comparison | Pending | — | — |
 | Interrupted-file recoverability | Pending | — | — |
-| Physical `transferFile` | Pending | — | — |
-| Durable acknowledgement | Pending | — | — |
+| Physical `transferFile` | PASS | Physical Watch recording appeared in iPhone local library after the replacement build | Watch-to-iPhone local handoff is viable |
+| Durable acknowledgement | PASS | Watch showed acknowledged state and removed its retained audio after iPhone ingestion | Keep the durable-ack boundary before Watch cleanup |
 | Dual-source remote start | Pending | `docs/APPLE_WATCH_PHASE1_REMOTE_START.md` | Real-device locked-phone test still required |
 | TestFlight Watch recorder startup | FAIL | Physical TestFlight install; Watch displays `OSStatus error -50` when recording starts | Replace the audio-session/recorder startup path before transfer and endurance testing |
+| Local replacement Watch recorder startup | PASS | Development-signed physical Watch recording completed after switching to default audio-session mode | Proceed to background, endurance, and retry testing |
+| Watch recording visible on iPhone | PASS | Signed iPhone build imported the acknowledged Watch file as `Watch Recording` with `Not Sent` status | iPhone library import is wired; server upload remains user-controlled |
+| Watch playback payload alignment | PASS locally / physical confirmation pending | Durable Watch payloads measure 17.7 s, 25.3 s, and 190.0 s; the iPhone importer previously reused one 2.8 s file and now writes a source-specific file plus repairs old entries | Keep duration metadata and playback URLs tied to the same source ID |
 
 ## Code-level recovery rule
 
@@ -248,14 +252,19 @@ This rule does not decide whether WatchOS requires segmentation; that remains th
 - 2026-08-31 — Added restart-safe MacBook launch agents for Ollama supervision and the local Noted API, with logs under `~/Library/Logs/Noted`. Verified Ollama health, API health at `100.122.189.114:3333`, real local LLM mode using `gpt-oss:20b`, and configured Groq transcription status.
 - 2026-08-31 — App Store Connect rejected Build 5 because the Watch bundle still declared version `0.1` and had no icon metadata. Aligned the Watch and iPhone marketing version at `1.0`, added the Watch `AppIcon` catalog plus explicit icon plist entries, and verified both the standalone Watch build and embedded iOS archive locally. The replacement Cloud build is pending.
 - 2026-08-31 — The Cloud/TestFlight build installed on the paired iPhone and Watch, but physical Watch recording startup reported `OSStatus error -50`. Updated Watch audio startup to use asynchronous session activation, default to the documented 16 kHz speech profile, and fall back to 16 kHz when a selected profile is rejected; standalone Watch build and embedded iOS archive both pass locally.
+- 2026-08-31 — Attempted local physical Watch debugging after the repeated error; the iPhone was connected, but Xcode timed out waiting for the Watch destination and CoreDevice then reported the Watch tunnel disconnected. No local runtime result was inferred.
+- 2026-08-31 — CoreDevice provisioning recovered: registered the physical Series 11 Watch for local development signing, built the replacement Watch app, installed it, and launched it on the paired Watch.
+- 2026-08-31 — Replaced the Watch recording session's playback-oriented `spokenAudio` mode with the default recording mode and added surfaced activation/configuration reasons. The physical Watch then recorded successfully without `OSStatus error -50`.
+- 2026-08-31 — Found the physical transfer visibility gap: iPhone durably received and acknowledged the Watch file but did not import it into the normal local-recordings index. Added retry-safe Watch inbox import and verified the signed iPhone build shows the 18-second `Watch Recording` as `Not Sent` under `On this iPhone`.
+- 2026-08-31 — Added regression coverage for importing a validated Watch receipt into the existing local-recordings library, including duration, marker, state, and payload preservation; the iPhone suite now passes 22 tests.
+- 2026-08-31 — Diagnosed the reported short-playback failure: all Watch imports had been assigned the literal filename `(manifest.sourceID.uuidString).m4a`, so the list duration came from the new manifest while playback opened an older 2.8-second payload. Watch transfer files were verified intact, the importer now uses the source UUID filename, existing affected entries are repaired from durable receipts at launch, and the iPhone suite passes 23 tests.
 
 ## Current blockers
 
-- **Xcode Cloud/TestFlight export:** the `Noted by Shepswork` app record, workflow, stable `Latest Release` runner, shared `Noted` archive scheme, and all three identifiers are in place. The Watch version/icon rejection is fixed, the current Cloud/TestFlight build installed on both devices, and the next gate is a new managed-signing export containing the Watch audio startup fix.
+- **Xcode Cloud/TestFlight export:** the `Noted by Shepswork` app record, workflow, stable `Latest Release` runner, shared `Noted` archive scheme, and all three identifiers are in place. The Watch version/icon rejection is fixed, the current Cloud/TestFlight build installed on both devices, and the next gate is a new managed-signing export containing the physical Watch audio and iPhone import fixes.
 - **Cloud account session:** Build 5 compiled and exported all distribution variants with managed profiles, but the App Store Connect preparation step could not authenticate the Xcode Cloud session, so TestFlight did not run. If the replacement build repeats that failure, the remaining recovery step is in App Store Connect/Xcode Cloud account access rather than the app source.
 - **Future processing host:** `ubuntumac` (`100.105.31.42`) is intentionally out of scope for this sprint. Revisit it only after the MacBook/TestFlight path is installed and validated.
-- **Local development install (optional):** the direct signed Watch build still requires registering Watch UDID `00008310-001042C614F0E01E` and regenerating the development profile. This is not required for a TestFlight distribution build.
-- **Physical acceptance:** the next Cloud-signed build must clear the Watch recorder startup error before receiver/transfer flows can be tested. Permission prompts, wrist-down/background behavior, battery use, thermal behavior, audio-route behavior, and the full Phase 1 matrix still require hands-on physical testing.
+- **Physical acceptance:** the core foreground Watch recording, physical `transferFile`, durable acknowledgement, and iPhone library import now pass locally. The short-playback importer bug is fixed and the affected phone entries were repaired locally, but playback on the physical phone must still be confirmed. Permission prompts, wrist-down/background behavior, battery use, thermal behavior, audio-route behavior, idempotent retry, and the full Phase 1 matrix still require hands-on physical testing. The latest fixes still need a new Cloud/TestFlight build before they can replace the older failing TestFlight binary.
 
 ## Explicit Phase 1 non-goals
 

@@ -247,6 +247,47 @@ final class LocalRecordingStore {
         )
     }
 
+    func importWatchRecording(fileURL: URL, manifest: WatchTransferManifest) throws -> LocalRecording {
+        guard byteSize(of: fileURL) == manifest.byteSize,
+              try WatchCaptureProtocol.checksum(of: fileURL) == manifest.sha256 else {
+            throw WatchCaptureProtocolError.checksumMismatch
+        }
+
+        let fileName = "\(manifest.sourceID.uuidString).m4a"
+        let destination = recordingsDirectory.appendingPathComponent(fileName)
+        if !fileManager.fileExists(atPath: destination.path) {
+            try fileManager.copyItem(at: fileURL, to: destination)
+        }
+
+        return LocalRecording(
+            id: manifest.sourceID,
+            localFileURL: destination,
+            createdAt: manifest.createdAt,
+            duration: manifest.duration,
+            title: "Watch Recording",
+            state: .localOnly,
+            uploadAttempts: 0,
+            serverSourceId: nil,
+            byteSize: manifest.byteSize,
+            bookmarks: manifest.marks.map { LocalBookmark(id: $0.id, timestamp: $0.sourceElapsedTime, createdAt: $0.createdAt) },
+            lastError: nil,
+            consentMode: "private_thought",
+            consentAcknowledged: true,
+            finalizedAt: manifest.endedAt
+        )
+    }
+
+    func needsWatchRecordingRepair(_ recording: LocalRecording, manifest: WatchTransferManifest) -> Bool {
+        guard recording.id == manifest.sourceID,
+              recording.fileName == "\(manifest.sourceID.uuidString).m4a",
+              fileManager.fileExists(atPath: recording.localFileURL.path),
+              byteSize(of: recording.localFileURL) == manifest.byteSize else {
+            return true
+        }
+
+        return (try? WatchCaptureProtocol.checksum(of: recording.localFileURL)) != manifest.sha256
+    }
+
     func byteSize(of url: URL) -> Int64 {
         (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
     }

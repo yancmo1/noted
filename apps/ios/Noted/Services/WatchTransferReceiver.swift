@@ -8,6 +8,10 @@ struct WatchTransferIngestResult: Equatable {
     let wasExisting: Bool
 }
 
+extension Notification.Name {
+    static let notedWatchTransferReceived = Notification.Name("noted.watchTransferReceived")
+}
+
 final class WatchTransferStore {
     let durableDirectory: URL
 
@@ -74,6 +78,31 @@ final class WatchTransferStore {
             sha256: stored.sha256,
             acknowledgedAt: Date()
         )
+    }
+
+    func pendingTransfers() -> [(manifest: WatchTransferManifest, fileURL: URL)] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let manifests = (try? fileManager.contentsOfDirectory(
+            at: durableDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))?.filter { $0.pathExtension.lowercased() == "json" } ?? []
+
+        return manifests.compactMap { manifestURL in
+            guard let data = try? Data(contentsOf: manifestURL),
+                  let manifest = try? JSONDecoder().decode(WatchTransferManifest.self, from: data),
+                  (try? WatchCaptureProtocol.validate(manifest: manifest)) != nil else {
+                return nil
+            }
+            let fileURL = durableDirectory.appendingPathComponent(safeFileName(for: manifest))
+            guard fileManager.fileExists(atPath: fileURL.path),
+                  (try? validate(fileURL: fileURL, manifest: manifest)) != nil else {
+                return nil
+            }
+            return (manifest: manifest, fileURL: fileURL)
+        }
     }
 
     private func validate(fileURL: URL, manifest: WatchTransferManifest) throws {
@@ -146,6 +175,10 @@ final class WatchTransferReceiver: NSObject, WCSessionDelegate, @unchecked Senda
         session.activate()
     }
 
+    func pendingTransfers() -> [(manifest: WatchTransferManifest, fileURL: URL)] {
+        store.pendingTransfers()
+    }
+
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         if let error {
             logger.error("Activation failed: \(error.localizedDescription, privacy: .public)")
@@ -176,6 +209,7 @@ final class WatchTransferReceiver: NSObject, WCSessionDelegate, @unchecked Senda
                 acknowledgedAt: Date()
             )
             session.transferUserInfo(try WatchCaptureProtocol.ackUserInfo(for: ack))
+            NotificationCenter.default.post(name: .notedWatchTransferReceived, object: nil)
             logger.info("Durably received Watch source \(manifest.sourceID.uuidString, privacy: .public), bytes=\(manifest.byteSize, privacy: .public), checksum=\(manifest.sha256, privacy: .public), existing=\(result.wasExisting, privacy: .public)")
         } catch {
             logger.error("Watch file ingestion failed: \(error.localizedDescription, privacy: .public)")

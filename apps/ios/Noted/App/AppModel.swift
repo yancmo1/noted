@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published var isRestoringSession = false
 
     private var pendingShareUploadIDs = Set<UUID>()
+    private var watchTransferObserver: NSObjectProtocol?
 
     init() {
         let baseString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "http://127.0.0.1:3333"
@@ -31,10 +32,19 @@ final class AppModel: ObservableObject {
         }
         connectivity.start()
         localRecordings = localStore.load()
+        watchTransferObserver = NotificationCenter.default.addObserver(
+            forName: .notedWatchTransferReceived,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.importWatchRecordings()
+            }
+        }
     }
 
     func launch() async {
-        isLoading = true; localRecordings = localStore.load(); importSharedRecordings()
+        isLoading = true; localRecordings = localStore.load(); importWatchRecordings(); importSharedRecordings()
         if let warning = localStore.lastLoadWarning { errorMessage = warning }
         isLoading = false
         if let saved = keychain.password() {
@@ -76,7 +86,7 @@ final class AppModel: ObservableObject {
     }
 
     func handleSceneActive() async {
-        localRecordings = localStore.load(); importSharedRecordings()
+        localRecordings = localStore.load(); importWatchRecordings(); importSharedRecordings()
         if let warning = localStore.lastLoadWarning { errorMessage = warning }
         guard !isRestoringSession else { return }
         if !authenticated, let saved = keychain.password() {
@@ -127,6 +137,35 @@ final class AppModel: ObservableObject {
             localRecordings = current.sorted { $0.createdAt > $1.createdAt }
             try? localStore.save(localRecordings)
         }
+        return importedIDs
+    }
+
+    @discardableResult
+    private func importWatchRecordings() -> [UUID] {
+        let pending = WatchTransferReceiver.shared.pendingTransfers()
+        guard !pending.isEmpty else { return [] }
+
+        var current = localRecordings
+        var importedIDs: [UUID] = []
+        let deletedIDs = localStore.deletedRecordingIDs()
+        for transfer in pending where !deletedIDs.contains(transfer.manifest.sourceID) {
+            do {
+                let imported = try localStore.importWatchRecording(fileURL: transfer.fileURL, manifest: transfer.manifest)
+                if let index = current.firstIndex(where: { $0.id == transfer.manifest.sourceID }) {
+                    guard localStore.needsWatchRecordingRepair(current[index], manifest: transfer.manifest) else { continue }
+                    current[index] = imported
+                } else {
+                    current.append(imported)
+                }
+                importedIDs.append(imported.id)
+            } catch {
+                errorMessage = "Noted received the Watch recording, but could not add it to Recordings: \(error.localizedDescription)"
+            }
+        }
+
+        guard !importedIDs.isEmpty else { return [] }
+        localRecordings = current.sorted { $0.createdAt > $1.createdAt }
+        try? localStore.save(localRecordings)
         return importedIDs
     }
 

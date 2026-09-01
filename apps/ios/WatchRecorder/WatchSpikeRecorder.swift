@@ -131,7 +131,14 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         let fileURL = recordingsDirectory.appendingPathComponent("\(id.uuidString).m4a")
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .spokenAudio, options: [])
+            // `.spokenAudio` is intended for spoken-audio playback and can be
+            // rejected by the Watch microphone route with OSStatus -50. The
+            // default mode is the least restrictive recording configuration.
+            do {
+                try session.setCategory(.record, mode: .default, options: [])
+            } catch {
+                throw WatchSpikeError.audioSessionConfigurationFailed(error.localizedDescription)
+            }
             try await activateAudioSession(session)
             let (recorder, recordingProfile) = try makePreparedRecorder(at: fileURL)
             recorder.delegate = self
@@ -459,16 +466,20 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 session.activate(options: []) { activated, error in
                     if let error {
-                        continuation.resume(throwing: error)
+                        continuation.resume(throwing: WatchSpikeError.audioSessionActivationFailed(error.localizedDescription))
                     } else if activated {
                         continuation.resume(returning: ())
                     } else {
-                        continuation.resume(throwing: WatchSpikeError.audioSessionActivationFailed)
+                        continuation.resume(throwing: WatchSpikeError.audioSessionActivationFailed("The Watch audio session did not activate."))
                     }
                 }
             }
         } else {
-            try session.setActive(true)
+            do {
+                try session.setActive(true)
+            } catch {
+                throw WatchSpikeError.audioSessionActivationFailed(error.localizedDescription)
+            }
         }
     }
 
@@ -921,7 +932,8 @@ enum WatchSpikeError: LocalizedError {
     case couldNotStart
     case couldNotResume
     case couldNotPrepare(WatchAudioProfile)
-    case audioSessionActivationFailed
+    case audioSessionConfigurationFailed(String)
+    case audioSessionActivationFailed(String)
     case recordNotFinalized
     case emptyRecording
     case connectivityUnavailable
@@ -931,7 +943,8 @@ enum WatchSpikeError: LocalizedError {
         case .couldNotStart: "The Watch recorder could not start."
         case .couldNotResume: "The Watch recorder could not resume after an interruption."
         case .couldNotPrepare(let profile): "The Watch audio profile \(profile.rawValue) is not supported on the current audio route."
-        case .audioSessionActivationFailed: "The Watch microphone session could not be activated."
+        case .audioSessionConfigurationFailed(let reason): "The Watch microphone configuration failed: \(reason)"
+        case .audioSessionActivationFailed(let reason): "The Watch microphone session could not be activated: \(reason)"
         case .recordNotFinalized: "The Watch recording is not finalized yet."
         case .emptyRecording: "The Watch recording contains no audio to transfer."
         case .connectivityUnavailable: "WatchConnectivity is unavailable on this device."

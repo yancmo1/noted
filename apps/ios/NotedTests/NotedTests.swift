@@ -278,6 +278,81 @@ final class NotedTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: retried.destinationURL), payload)
     }
 
+    func testWatchTransferImportsIntoTheExistingLocalRecordingLibrary() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
+        let input = base.appendingPathComponent("input.m4a")
+        let payload = Data("watch recording payload".utf8)
+        try payload.write(to: input)
+        let sourceID = UUID()
+        let mark = WatchCaptureMark(id: UUID(), createdAt: Date(), sourceElapsedTime: 1.5)
+        let manifest = WatchTransferManifest(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: nil,
+            sourceID: sourceID,
+            sequence: 0,
+            fileName: input.lastPathComponent,
+            createdAt: Date(),
+            startedAt: Date(),
+            endedAt: Date().addingTimeInterval(4),
+            duration: 4,
+            byteSize: Int64(payload.count),
+            sha256: try WatchCaptureProtocol.checksum(of: input),
+            format: WatchAudioFormat(codec: "AAC-LC", container: "m4a", sampleRate: 16_000, channels: 1, bitrate: 32_000),
+            marks: [mark]
+        )
+
+        let transferStore = WatchTransferStore(durableDirectory: base.appendingPathComponent("durable", isDirectory: true))
+        let received = try transferStore.ingest(fileURL: input, manifest: manifest)
+        let localStore = LocalRecordingStore(baseDirectory: base.appendingPathComponent("local", isDirectory: true))
+        let imported = try localStore.importWatchRecording(fileURL: received.destinationURL, manifest: manifest)
+
+        XCTAssertEqual(imported.id, sourceID)
+        XCTAssertEqual(imported.title, "Watch Recording")
+        XCTAssertEqual(imported.state, .localOnly)
+        XCTAssertEqual(imported.duration, manifest.duration)
+        XCTAssertEqual(imported.fileName, "\(sourceID.uuidString).m4a")
+        XCTAssertEqual(imported.bookmarks.first?.timestamp, mark.sourceElapsedTime)
+        XCTAssertEqual(try Data(contentsOf: localStore.resolvedURL(for: imported)), payload)
+    }
+
+    func testWatchTransferImportsUseDistinctLocalFiles() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
+        let localStore = LocalRecordingStore(baseDirectory: base.appendingPathComponent("local", isDirectory: true))
+        var importedFileNames = Set<String>()
+        for _ in 0..<2 {
+            let sourceID = UUID()
+            let input = base.appendingPathComponent("\(sourceID.uuidString).m4a")
+            let payload = Data(sourceID.uuidString.utf8)
+            try payload.write(to: input)
+            let manifest = WatchTransferManifest(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: nil,
+                sourceID: sourceID,
+                sequence: 0,
+                fileName: input.lastPathComponent,
+                createdAt: Date(),
+                startedAt: Date(),
+                endedAt: Date().addingTimeInterval(1),
+                duration: 1,
+                byteSize: Int64(payload.count),
+                sha256: try WatchCaptureProtocol.checksum(of: input),
+                format: WatchAudioFormat(codec: "AAC-LC", container: "m4a", sampleRate: 16_000, channels: 1, bitrate: 32_000),
+                marks: []
+            )
+
+            let imported = try localStore.importWatchRecording(fileURL: input, manifest: manifest)
+            importedFileNames.insert(imported.fileName)
+        }
+
+        XCTAssertEqual(importedFileNames.count, 2)
+    }
+
     func testWatchTransferProtocolRejectsUnsupportedVersions() throws {
         let manifest = WatchTransferManifest(
             protocolVersion: WatchTransferManifest.currentProtocolVersion + 1,
