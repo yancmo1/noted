@@ -30,6 +30,7 @@ targets:
       properties:
         CFBundleDisplayName: Noted
         API_BASE_URL: $(API_BASE_URL)
+        ITSAppUsesNonExemptEncryption: false
         NSMicrophoneUsageDescription: Noted needs microphone access to save meeting audio on this iPhone.
         NSLocalNetworkUsageDescription: Noted connects to your local Noted server to sync recordings.
         NSAppTransportSecurity:
