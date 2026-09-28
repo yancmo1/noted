@@ -1,5 +1,5 @@
 [Unit]
-Description=Noted ai-lab Whisper large-v3 transcriber
+Description=Noted ai-lab Whisper small.en transcriber
 After=network-online.target
 Wants=network-online.target
 

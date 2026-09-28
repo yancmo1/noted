@@ -2,7 +2,7 @@
 """Small OpenAI-compatible Whisper service for the ai-lab VM.
 
 The service intentionally exposes only the transcription endpoint needed by
-Noted.  It keeps one large-v3 model resident in memory and serializes requests
+Noted. It keeps one Whisper model resident in memory and serializes requests
 because the ai-lab VM is a small CPU-only machine.
 """
 
@@ -27,7 +27,7 @@ from faster_whisper import WhisperModel
 
 HOST = os.getenv("TRANSCRIBER_HOST", "0.0.0.0")
 PORT = int(os.getenv("TRANSCRIBER_PORT", "8787"))
-MODEL_NAME = os.getenv("WHISPER_MODEL", "large-v3")
+MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")
 COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 CPU_THREADS = int(os.getenv("WHISPER_CPU_THREADS", "4"))
@@ -38,8 +38,6 @@ SERVICE_KEY = os.getenv("TRANSCRIBER_API_KEY", "").strip()
 
 class TranscriberState:
     def __init__(self) -> None:
-        if MODEL_NAME != "large-v3":
-            raise RuntimeError(f"Whisper model is locked to large-v3, not {MODEL_NAME!r}")
         self.started_at = time.time()
         self.model = WhisperModel(
             MODEL_NAME,

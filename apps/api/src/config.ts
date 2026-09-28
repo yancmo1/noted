@@ -15,10 +15,10 @@ export const config = {
   transcriptionMode: env("TRANSCRIPTION_MODE", (process.env.TRANSCRIPTION_API_KEY || legacyWhisperConfigured) ? "real" : "disabled"),
   transcriptionBaseUrl: env("TRANSCRIPTION_BASE_URL", legacyWhisperConfigured ? process.env.AI_BASE_URL : undefined) || "http://127.0.0.1:8787/v1",
   transcriptionApiKey: env("TRANSCRIPTION_API_KEY", legacyWhisperConfigured ? process.env.AI_API_KEY : ""),
-  transcriptionModel: env("TRANSCRIPTION_MODEL", legacyWhisperConfigured ? process.env.AI_MODEL : undefined) || "large-v3",
+  transcriptionModel: env("TRANSCRIPTION_MODEL", legacyWhisperConfigured ? process.env.AI_MODEL : undefined) || "small.en",
   transcriptionMaxBytes: Number(process.env.TRANSCRIPTION_MAX_MB ?? 20) * 1024 * 1024,
   // Keep each CPU transcription request short enough for the local HTTP
-  // transport to remain open while large-v3 finishes inference.
+  // transport to remain open while the local model finishes inference.
   transcriptionChunkSeconds: Number(process.env.TRANSCRIPTION_CHUNK_SECONDS ?? 120),
   ffmpegBinary: process.env.FFMPEG_BIN ?? "ffmpeg",
   ffprobeBinary: process.env.FFPROBE_BIN ?? "ffprobe",
