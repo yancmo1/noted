@@ -165,6 +165,12 @@ describe("API meeting capture contract", () => {
     expect(body.recordingSession?.client).toBe("native");
     expect(body.transcript.segments[0].text).toMatch(/local analysis/);
 
+    const download = await app.inject({ method: "GET", url: `/api/recordings/${body.source.id}/transcript.txt`, headers: { cookie } });
+    expect(download.statusCode).toBe(200);
+    expect(download.headers["content-type"]).toMatch(/text\/plain/);
+    expect(download.headers["content-disposition"]).toMatch(/attachment/);
+    expect(download.body).toContain("[00:00:00] We decided to test local analysis.");
+
     const retry = await app.inject({
       method: "POST",
       url: "/api/recordings/local-transcript",

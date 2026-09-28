@@ -252,6 +252,23 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (!bundle || bundle.source.type !== "voice") return reply.code(404).send({ error: "Recording not found" });
     return bundle.transcript;
   });
+  app.get("/api/recordings/:id/transcript.txt", async (request: any, reply) => {
+    const bundle = sourceBundle(request.params.id);
+    if (!bundle || bundle.source.type !== "voice") return reply.code(404).send({ error: "Recording not found" });
+    const timestamp = (ms?: number) => {
+      if (ms === undefined || !Number.isFinite(ms)) return "Transcript";
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    };
+    const body = bundle.transcript.segments.length
+      ? bundle.transcript.segments.map((segment) => `[${timestamp(segment.startMs)}] ${segment.text}`).join("\n\n")
+      : bundle.transcript.text;
+    const filename = `${safeFileName(bundle.source.title, "recording")}-transcript.txt`;
+    return reply.header("Content-Disposition", `attachment; filename="${filename}"`).type("text/plain; charset=utf-8").send(`${body.trim()}\n`);
+  });
   app.patch("/api/recordings/:id/transcript", async (request: any, reply) => {
     const source = store.getSource(request.params.id);
     if (!source || source.type !== "voice") return reply.code(404).send({ error: "Recording not found" });
