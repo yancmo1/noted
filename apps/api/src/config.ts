@@ -17,7 +17,9 @@ export const config = {
   transcriptionApiKey: env("TRANSCRIPTION_API_KEY", legacyWhisperConfigured ? process.env.AI_API_KEY : ""),
   transcriptionModel: env("TRANSCRIPTION_MODEL", legacyWhisperConfigured ? process.env.AI_MODEL : undefined) || "large-v3",
   transcriptionMaxBytes: Number(process.env.TRANSCRIPTION_MAX_MB ?? 20) * 1024 * 1024,
-  transcriptionChunkSeconds: Number(process.env.TRANSCRIPTION_CHUNK_SECONDS ?? 600),
+  // Keep each CPU transcription request short enough for the local HTTP
+  // transport to remain open while large-v3 finishes inference.
+  transcriptionChunkSeconds: Number(process.env.TRANSCRIPTION_CHUNK_SECONDS ?? 120),
   ffmpegBinary: process.env.FFMPEG_BIN ?? "ffmpeg",
   ffprobeBinary: process.env.FFPROBE_BIN ?? "ffprobe",
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 256) * 1024 * 1024,
