@@ -450,7 +450,6 @@ export class OpenAICompatibleTranscriptionProvider implements TranscriptionProvi
     body.append("model", this.settings.model);
     body.append("response_format", "verbose_json");
     body.append("timestamp_granularities[]", "segment");
-    body.append("timestamp_granularities[]", "word");
     const headers: Record<string, string> = {};
     if (this.settings.apiKey) headers.Authorization = `Bearer ${this.settings.apiKey}`;
     const response = await fetch(`${this.settings.baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
