@@ -221,6 +221,11 @@ struct MeetingDetailView: View {
     @State private var shareNotice: String?
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
+    @State private var calendarLinks: [CalendarEventLink] = []
+    @State private var calendarCandidateToReview: CalendarCandidate?
+    @State private var calendarNotice: String?
+    @State private var calendarError: String?
+    private let calendarLinkStore = CalendarLinkStore()
 
     private var currentRecording: LocalRecording? {
         guard let recording else { return nil }
@@ -248,8 +253,17 @@ struct MeetingDetailView: View {
                 uploadControl
                 playerCard
                 statusBanner
+                processingDiagnosticsCard
                 if let brief = bundle?.source.meetingBrief {
-                    MeetingBriefView(brief: brief, actionStatuses: $actionStatuses, onActionStatusChange: updateActionStatus, onSeek: seek)
+                    MeetingBriefView(
+                        brief: brief,
+                        actionStatuses: $actionStatuses,
+                        calendarLinks: calendarLinks,
+                        sourceID: sourceID,
+                        onActionStatusChange: updateActionStatus,
+                        onReviewCalendarCandidate: reviewCalendarCandidate,
+                        onSeek: seek
+                    )
                 } else if bundle?.source.processingStatus == .ready {
                     Card(title: "Meeting brief") { Text("No structured brief was returned for this meeting.").foregroundStyle(.secondary) }
                 } else if bundle == nil && sourceID != nil {
@@ -291,6 +305,29 @@ struct MeetingDetailView: View {
             Button("OK", role: .cancel) { deletionError = nil }
         } message: {
             Text(deletionError ?? "Try again when the server is reachable.")
+        }
+        .sheet(item: $calendarCandidateToReview) { candidate in
+            if let sourceID {
+                CalendarCandidateReviewView(candidate: candidate) { title, startDate, calendarIdentifier in
+                    let link = try await CalendarService.shared.createEvent(
+                        sourceID: sourceID,
+                        candidateID: candidate.id,
+                        title: title,
+                        startDate: startDate,
+                        calendarIdentifier: calendarIdentifier
+                    )
+                    try calendarLinkStore.save(link)
+                    calendarLinks = calendarLinkStore.load()
+                    calendarNotice = "Added \(link.title) to \(link.calendarTitle ?? "Calendar")."
+                    return link
+                }
+            } else {
+                ContentUnavailableView(
+                    "Meeting unavailable",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text("Noted needs the saved meeting identifier before it can add this event.")
+                )
+            }
         }
         .task { await loadAndPoll() }
         .onDisappear { Task { await player.stop() } }
@@ -436,6 +473,107 @@ struct MeetingDetailView: View {
         }
     }
 
+    private var processingDiagnostics: ProcessingDiagnostics? {
+        bundle?.source.processingDiagnostics ?? source?.processingDiagnostics
+    }
+
+    @ViewBuilder
+    private var processingDiagnosticsCard: some View {
+        if let diagnostics = processingDiagnostics {
+            Card(title: "Processing details") {
+                VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpacing.sm) {
+                        Label("Local-first pipeline", systemImage: "bolt.horizontal.circle")
+                            .font(.callout.weight(.semibold))
+                        Spacer(minLength: AppSpacing.xs)
+                        StatusPill(
+                            text: diagnosticsSummary(diagnostics),
+                            color: diagnostics.elapsedMs == nil ? Color.notedAttention : Color.notedSuccess
+                        )
+                    }
+                    processingStageRow(title: "Transcription", stage: diagnostics.transcription)
+                    processingStageRow(title: "Meeting analysis", stage: diagnostics.analysis)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("processing-diagnostics")
+        }
+    }
+
+    private func diagnosticsSummary(_ diagnostics: ProcessingDiagnostics) -> String {
+        guard let elapsedMs = diagnostics.elapsedMs else { return "In progress" }
+        return "Completed · \(elapsedLabel(elapsedMs))"
+    }
+
+    private func processingStageRow(title: String, stage: ProcessingStageDiagnostics) -> some View {
+        HStack(alignment: .top, spacing: AppSpacing.sm) {
+            Image(systemName: stageIcon(stage))
+                .foregroundStyle(stageColor(stage))
+                .frame(width: AppSpacing.md)
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.xs) {
+                    Text(title).font(.callout.weight(.semibold))
+                    Spacer(minLength: AppSpacing.xs)
+                    Text(stageStatus(stage))
+                        .font(.caption)
+                        .foregroundStyle(stageColor(stage))
+                }
+                Text(stageDetail(stage))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let error = stage.error {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(Color.notedAttention)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(stageStatus(stage)). \(stageDetail(stage))")
+    }
+
+    private func stageStatus(_ stage: ProcessingStageDiagnostics) -> String {
+        switch stage.status {
+        case "processing": "In progress"
+        case "complete": stage.skipped == true ? "Already available" : "Complete"
+        case "failed": "Failed"
+        default: "Waiting"
+        }
+    }
+
+    private func stageDetail(_ stage: ProcessingStageDiagnostics) -> String {
+        var details: [String] = []
+        if let provider = stage.provider, !provider.isEmpty { details.append(provider) }
+        if let model = stage.model, !model.isEmpty { details.append(model) }
+        if let elapsedMs = stage.elapsedMs, stage.skipped != true { details.append(elapsedLabel(elapsedMs)) }
+        if let segmentCount = stage.segmentCount { details.append("\(segmentCount) segments") }
+        if let transcriptCharacters = stage.transcriptCharacters { details.append("\(transcriptCharacters) characters") }
+        return details.isEmpty ? "No timing recorded yet." : details.joined(separator: " · ")
+    }
+
+    private func stageIcon(_ stage: ProcessingStageDiagnostics) -> String {
+        switch stage.status {
+        case "processing": "hourglass"
+        case "complete": "checkmark.circle.fill"
+        case "failed": "exclamationmark.triangle.fill"
+        default: "circle"
+        }
+    }
+
+    private func stageColor(_ stage: ProcessingStageDiagnostics) -> Color {
+        switch stage.status {
+        case "processing": Color.notedAttention
+        case "complete": Color.notedSuccess
+        case "failed": .red
+        default: .secondary
+        }
+    }
+
+    private func elapsedLabel(_ milliseconds: Int) -> String {
+        if milliseconds < 1_000 { return "\(milliseconds) ms" }
+        return String(format: "%.1f s", Double(milliseconds) / 1_000)
+    }
+
     private var serverIsProcessing: Bool {
         switch bundle?.source.processingStatus {
         case .pending, .processing: return true
@@ -543,6 +681,16 @@ struct MeetingDetailView: View {
                 .font(.callout)
                 .foregroundStyle(Color.notedSuccess)
         }
+        if let calendarNotice {
+            Label(calendarNotice, systemImage: "calendar.badge.checkmark")
+                .font(.callout)
+                .foregroundStyle(Color.notedSuccess)
+        }
+        if let calendarError {
+            Label(calendarError, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(Color.notedAttention)
+        }
         if let error = audioError ?? player.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
@@ -627,6 +775,7 @@ struct MeetingDetailView: View {
 
     private func load() async {
         audioError = nil
+        calendarLinks = calendarLinkStore.load()
         await loadBundle()
         do {
             if let localURL, model.localStore.byteSize(of: localURL) > 0 {
@@ -722,12 +871,25 @@ struct MeetingDetailView: View {
         actionStatuses[item.id] = status
         Task { _ = try? await model.api.updateActionItem(sourceID: sourceID, actionItemID: item.id, status: status) }
     }
+
+    private func reviewCalendarCandidate(_ candidate: CalendarCandidate) {
+        guard sourceID != nil else {
+            calendarError = "Noted needs the saved meeting identifier before it can add this event."
+            return
+        }
+        calendarError = nil
+        calendarNotice = nil
+        calendarCandidateToReview = candidate
+    }
 }
 
 struct MeetingBriefView: View {
     let brief: MeetingBrief
     @Binding var actionStatuses: [String: String]
+    let calendarLinks: [CalendarEventLink]
+    let sourceID: String?
     let onActionStatusChange: (MeetingActionItem, String) -> Void
+    let onReviewCalendarCandidate: (CalendarCandidate) -> Void
     let onSeek: (TimeInterval) -> Void
 
     var body: some View {
@@ -736,6 +898,7 @@ struct MeetingBriefView: View {
             claimSection(title: "Key points", claims: brief.keyPoints)
             claimSection(title: "Decisions", claims: brief.decisions)
             actionSection
+            calendarCandidateSection
             claimSection(title: "Suggested follow-ups", claims: brief.suggestedFollowUps)
             claimSection(title: "Unresolved questions", claims: brief.unresolvedQuestions)
         }
@@ -748,6 +911,71 @@ struct MeetingBriefView: View {
                 Text(title.uppercased()).font(.caption.bold()).tracking(1.2).foregroundStyle(.secondary)
                 ForEach(claims) { claim in
                     ClaimRow(claim: claim, onSeek: onSeek)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var calendarCandidateSection: some View {
+        if !brief.calendarCandidates.isEmpty {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                Text("CALENDAR CANDIDATES").font(.caption.bold()).tracking(1.2).foregroundStyle(.secondary)
+                ForEach(brief.calendarCandidates) { candidate in
+                    let calendarLink = calendarLinks.first { $0.sourceID == sourceID && $0.candidateID == candidate.id }
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        HStack(alignment: .top, spacing: AppSpacing.sm) {
+                            Label(candidate.title, systemImage: "calendar.badge.clock")
+                                .font(.callout.weight(.semibold))
+                            Spacer(minLength: AppSpacing.xs)
+                            if calendarLink == nil {
+                                StatusPill(text: "Needs confirmation", color: Color.notedAttention)
+                            } else {
+                                StatusPill(text: "Added", color: Color.notedSuccess)
+                            }
+                        }
+                        Text([candidate.dateText, candidate.timeText].compactMap { $0 }.joined(separator: " · "))
+                            .font(.headline)
+                        if let calendarLink {
+                            Label("Added to Calendar", systemImage: "checkmark.circle.fill")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(Color.notedSuccess)
+                            Text(calendarLink.startDate.formatted(date: .complete, time: .shortened))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            if candidate.datePrecision == "month_day" {
+                                Text("The recording did not include a year. Review the date and time before adding it.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Review the date and time before adding this event.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if CalendarCandidateDateBuilder.startDate(for: candidate) != nil {
+                                Button {
+                                    onReviewCalendarCandidate(candidate)
+                                } label: {
+                                    Label("Review and add to Calendar", systemImage: "calendar.badge.plus")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("review-calendar-candidate-\(candidate.id)")
+                            } else {
+                                Text("A complete date and time are needed before this can be added.")
+                                    .font(.footnote)
+                                    .foregroundStyle(Color.notedAttention)
+                            }
+                        }
+                        if let evidence = candidate.evidenceRefs.first, let startMs = evidence.startMs {
+                            Button("Evidence · \(timeLabel(TimeInterval(startMs) / 1000))") { onSeek(TimeInterval(startMs) / 1000) }
+                                .font(.caption.bold())
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(AppSpacing.card)
+                    .background(Color.notedAttention.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card))
                 }
             }
         }
@@ -774,6 +1002,147 @@ struct MeetingBriefView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+struct CalendarCandidateReviewView: View {
+    let candidate: CalendarCandidate
+    let onConfirm: (String, Date, String) async throws -> CalendarEventLink
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var startDate: Date
+    @State private var calendars: [EventCalendarOption] = []
+    @State private var selectedCalendarID = ""
+    @State private var isLoadingCalendars = false
+    @State private var calendarLoadError: String?
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(candidate: CalendarCandidate, onConfirm: @escaping (String, Date, String) async throws -> CalendarEventLink) {
+        self.candidate = candidate
+        self.onConfirm = onConfirm
+        _title = State(initialValue: candidate.title)
+        _startDate = State(initialValue: CalendarCandidateDateBuilder.startDate(for: candidate) ?? Date())
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Suggested event") {
+                    TextField("Title", text: $title)
+                        .accessibilityIdentifier("calendar-event-title")
+                    DatePicker("Date and time", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                        .accessibilityIdentifier("calendar-event-date")
+                }
+
+                Section("Calendar") {
+                    if isLoadingCalendars {
+                        HStack(spacing: AppSpacing.sm) {
+                            ProgressView()
+                            Text("Loading writable calendars…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if calendars.isEmpty {
+                        Text("No writable calendars are available on this iPhone.")
+                            .foregroundStyle(.secondary)
+                        if let calendarLoadError {
+                            Label(calendarLoadError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(Color.notedAttention)
+                        }
+                        Button("Try again") {
+                            Task { await loadCalendars() }
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Picker("Calendar", selection: $selectedCalendarID) {
+                            ForEach(calendars) { calendar in
+                                Text(calendar.isDefault ? "\(calendar.title) (Default)" : calendar.title)
+                                    .tag(calendar.id)
+                            }
+                        }
+                        .accessibilityIdentifier("calendar-picker")
+                    }
+                }
+
+                Section {
+                    if candidate.datePrecision == "month_day" {
+                        Label(
+                            "The recording did not include a year. Confirm or change the date before adding this event.",
+                            systemImage: "questionmark.circle"
+                        )
+                    }
+                    Text("Noted will add a 30-minute event to the selected Calendar only after you confirm.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.notedAttention)
+                    }
+                }
+            }
+            .navigationTitle("Add to Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        save()
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Add to Calendar")
+                        }
+                    }
+                    .disabled(
+                        isSaving ||
+                        isLoadingCalendars ||
+                        selectedCalendarID.isEmpty ||
+                        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    .accessibilityIdentifier("add-calendar-event")
+                }
+            }
+        }
+        .task { await loadCalendars() }
+    }
+
+    private func loadCalendars() async {
+        guard !isLoadingCalendars else { return }
+        isLoadingCalendars = true
+        calendarLoadError = nil
+        do {
+            calendars = try await CalendarService.shared.availableCalendars()
+            selectedCalendarID = calendars.first(where: \.isDefault)?.id ?? calendars.first?.id ?? ""
+        } catch {
+            calendars = []
+            selectedCalendarID = ""
+            calendarLoadError = error.localizedDescription
+        }
+        isLoadingCalendars = false
+    }
+
+    private func save() {
+        guard !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                _ = try await onConfirm(title, startDate, selectedCalendarID)
+                dismiss()
+            } catch {
+                isSaving = false
+                errorMessage = error.localizedDescription
             }
         }
     }

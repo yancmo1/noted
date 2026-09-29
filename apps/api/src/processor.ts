@@ -3,7 +3,9 @@ import { store } from "./db.js";
 import { config } from "./config.js";
 import { chunkText } from "./chunking.js";
 import { transcribeWithChunking } from "./transcription.js";
-import type { ClaimState, EntityType, EvidenceRef, MeetingActionItem, MeetingBrief, MeetingClaim, Memory, Source, TranscriptSegment } from "./types.js";
+import { processingError, processingInfo } from "./diagnostics.js";
+import { extractCalendarCandidates } from "./calendar.js";
+import type { ClaimState, EntityType, EvidenceRef, MeetingActionItem, MeetingBrief, MeetingClaim, Memory, ProcessingDiagnostics, Source, TranscriptSegment } from "./types.js";
 
 const active = new Set<string>();
 const stopWords = new Set(["this", "that", "with", "from", "will", "have", "about", "instead", "into", "said", "still", "need", "what", "were", "they", "than"]);
@@ -40,7 +42,7 @@ function claim(sourceId: string, input: { text: string; confidence: number; evid
   };
 }
 
-function meetingBrief(sourceId: string, analysis: Awaited<ReturnType<typeof aiProvider.analyzeSource>>, segments: TranscriptSegment[]): MeetingBrief {
+function meetingBrief(sourceId: string, sourceTitle: string, analysis: Awaited<ReturnType<typeof aiProvider.analyzeSource>>, segments: TranscriptSegment[]): MeetingBrief {
   const mapClaims = (items: { text: string; confidence: number; evidence?: { segmentIndex: number; startMs?: number; endMs?: number; text: string }[] }[]) => items.filter((item) => item.text.trim()).map((item) => claim(sourceId, item, segments));
   const actionItems: MeetingActionItem[] = analysis.meeting.actionItems.filter((item) => item.text.trim()).map((item) => {
     const mapped = claim(sourceId, item, segments) as MeetingActionItem;
@@ -58,6 +60,7 @@ function meetingBrief(sourceId: string, analysis: Awaited<ReturnType<typeof aiPr
     actionItems,
     suggestedFollowUps: mapClaims(analysis.meeting.suggestedFollowUps),
     unresolvedQuestions: mapClaims(analysis.meeting.unresolvedQuestions),
+    calendarCandidates: extractCalendarCandidates(sourceId, sourceTitle, segments),
   };
 }
 
@@ -69,6 +72,7 @@ function retryTime(attempts: number) {
 export async function processSource(sourceId: string, jobId?: string) {
   if (active.has(sourceId)) return;
   active.add(sourceId);
+  const processingStartedAt = performance.now();
   const source = store.getSource(sourceId);
   if (!source) {
     active.delete(sourceId);
@@ -76,16 +80,42 @@ export async function processSource(sourceId: string, jobId?: string) {
   }
 
   let stage: "processing" | "transcription" | "analysis" = "processing";
+  const processingStartedISO = new Date().toISOString();
+  let processingDiagnostics: ProcessingDiagnostics = {
+    startedAt: processingStartedISO,
+    transcription: source.type === "voice" && !source.transcriptText && !source.extractedText && !source.originalText
+      ? { status: "not_started", provider: config.transcriptionProvider, model: config.transcriptionProvider === "local-whisper" ? config.localWhisperModel : config.transcriptionModel }
+      : { status: "complete", skipped: true, provider: config.transcriptionProvider, model: config.transcriptionProvider === "local-whisper" ? config.localWhisperModel : config.transcriptionModel },
+    analysis: { status: "not_started", provider: config.llmMode, model: config.llmModel },
+  };
+  const persistDiagnostics = (patch: Partial<ProcessingDiagnostics>) => {
+    processingDiagnostics = {
+      ...processingDiagnostics,
+      ...patch,
+      transcription: { ...processingDiagnostics.transcription, ...patch.transcription },
+      analysis: { ...processingDiagnostics.analysis, ...patch.analysis },
+    };
+    store.updateSource(sourceId, { processingDiagnostics });
+  };
   try {
+    processingInfo({ event: "processing_started", sourceId, jobId: jobId ?? null }, "Source processing started");
     if (jobId) store.claimJob(jobId);
-    store.updateSource(sourceId, { processingStatus: "processing", processingError: undefined });
+    store.updateSource(sourceId, { processingStatus: "processing", processingError: undefined, processingDiagnostics });
     let text = source.transcriptText || source.extractedText || source.originalText;
     let segments = store.transcriptForSource(sourceId);
 
     if (source.type === "voice" && !text) {
       stage = "transcription";
+      const transcriptionStartedAt = performance.now();
+      persistDiagnostics({ transcription: { status: "processing" } });
       if (!source.filePath || !transcriptionProvider) {
-        store.updateSource(sourceId, { processingStatus: "partial", transcriptStatus: "partial", processingError: "Audio is saved, but no transcription provider is configured. Add a transcript or configure one, then retry." });
+        const error = "Audio is saved, but no transcription provider is configured. Add a transcript or configure one, then retry.";
+        persistDiagnostics({
+          transcription: { status: "failed", elapsedMs: Math.round(performance.now() - transcriptionStartedAt), error },
+          completedAt: new Date().toISOString(),
+          elapsedMs: Math.round(performance.now() - processingStartedAt),
+        });
+        store.updateSource(sourceId, { processingStatus: "partial", transcriptStatus: "partial", processingError: error });
         if (source.recordingSessionId) store.updateRecordingSession(source.recordingSessionId, { status: "partial" });
         if (jobId) store.updateJob(jobId, "complete");
         active.delete(sourceId);
@@ -95,7 +125,9 @@ export async function processSource(sourceId: string, jobId?: string) {
       const result = await transcribeWithChunking(transcriptionProvider, { filePath: source.filePath, mimeType: source.audioMimeType ?? source.mimeType, sourceId, durationMs: source.durationMs });
       segments = store.replaceTranscript(sourceId, asTranscriptSegments(result));
       text = result.text;
+      persistDiagnostics({ transcription: { status: "complete", elapsedMs: Math.round(performance.now() - transcriptionStartedAt), segmentCount: segments.length, transcriptCharacters: text.length } });
       store.updateSource(sourceId, { transcriptText: text, extractedText: text, transcriptStatus: "ready" });
+      processingInfo({ event: "transcription_persisted", sourceId, elapsedMs: Math.round(performance.now() - processingStartedAt), segmentCount: segments.length, transcriptCharacters: text.length }, "Transcript persisted");
     }
 
     if (source.type === "url" && !text) {
@@ -126,7 +158,11 @@ export async function processSource(sourceId: string, jobId?: string) {
     if (source.type !== "voice") segments = [];
     const hints = source.type === "voice" ? transcriptHints(source) : undefined;
     stage = "analysis";
+    const analysisStartedAt = performance.now();
+    persistDiagnostics({ analysis: { status: "processing" } });
     const analysis = await aiProvider.analyzeSource(text, source.title, hints);
+    persistDiagnostics({ analysis: { status: "complete", elapsedMs: Math.round(performance.now() - analysisStartedAt) } });
+    processingInfo({ event: "analysis_completed", sourceId, elapsedMs: Math.round(performance.now() - processingStartedAt), providerMode: config.llmMode }, "Source analysis completed");
 
     // Replace derived data only after the new analysis has validated successfully.
     store.clearDerived(sourceId);
@@ -187,15 +223,28 @@ export async function processSource(sourceId: string, jobId?: string) {
       }
     }
 
-    const brief = meetingBrief(sourceId, analysis, segments);
+    const brief = meetingBrief(sourceId, source.title, analysis, segments);
+    processingDiagnostics = {
+      ...processingDiagnostics,
+      completedAt: new Date().toISOString(),
+      elapsedMs: Math.round(performance.now() - processingStartedAt),
+    };
     store.updateMeetingBrief(sourceId, brief);
-    store.updateSource(sourceId, { processingStatus: "ready", processingError: undefined, summary: brief.summary, transcriptStatus: source.type === "voice" ? "ready" : source.transcriptStatus, processingVersion: (source.processingVersion ?? 0) + 1 });
+    store.updateSource(sourceId, { processingStatus: "ready", processingError: undefined, summary: brief.summary, transcriptStatus: source.type === "voice" ? "ready" : source.transcriptStatus, processingVersion: (source.processingVersion ?? 0) + 1, processingDiagnostics });
     if (source.recordingSessionId) store.updateRecordingSession(source.recordingSessionId, { status: "ready" });
     if (jobId) store.updateJob(jobId, "complete");
+    processingInfo({ event: "processing_completed", sourceId, elapsedMs: Math.round(performance.now() - processingStartedAt), status: "ready" }, "Source processing completed");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Processing failed";
+    processingError({ event: "processing_failed", sourceId, jobId: jobId ?? null, stage, elapsedMs: Math.round(performance.now() - processingStartedAt), error: message }, "Source processing failed");
     const transcriptReady = source.type === "voice" && store.getSource(sourceId)?.transcriptStatus === "ready";
     const status = stage === "analysis" && transcriptReady ? "partial" : "failed";
+    const failedStage = stage === "transcription" ? "transcription" : "analysis";
+    persistDiagnostics({
+      [failedStage]: { status: "failed", elapsedMs: Math.round(performance.now() - processingStartedAt), error: message },
+      completedAt: new Date().toISOString(),
+      elapsedMs: Math.round(performance.now() - processingStartedAt),
+    });
     store.updateSource(sourceId, { processingStatus: status, processingError: `${stage}: ${message}`, transcriptStatus: transcriptReady ? "ready" : source.type === "voice" ? "failed" : source.transcriptStatus });
     if (source.recordingSessionId) store.updateRecordingSession(source.recordingSessionId, { status: status === "partial" ? "partial" : "failed" });
     if (jobId) {

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import fs from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { store } from "./db.js";
@@ -97,6 +98,34 @@ describe("API meeting capture contract", () => {
     const range = await app.inject({ method: "GET", url: `/files/${firstBody.id}`, headers: { cookie, range: "bytes=0-3" } });
     expect(range.statusCode).toBe(206);
     expect(range.body).toBe("RIFF");
+  });
+
+  it("persists browser recordings before local or cloud processing", async () => {
+    const clientRecordingId = "web-save-before-processing-recording";
+    const boundary = "memory-garden-web-recording-boundary";
+    const payload = multipartBody(boundary, {
+      clientRecordingId,
+      consentMode: "private_thought",
+      consentAcknowledged: "true",
+      durationMs: "1200",
+      startedAt: "2026-08-19T13:00:00.000Z",
+      endedAt: "2026-08-19T13:00:01.200Z",
+      client: "web",
+    }, silentWav());
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/capture/voice",
+      headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ id: string; processingStatus: string }>();
+    createdSourceIDs.push(body.id);
+    const saved = store.getSource(body.id);
+    expect(saved?.processingStatus).toBeDefined();
+    expect(saved?.filePath).toBeTruthy();
+    expect(fs.existsSync(saved?.filePath ?? "")).toBe(true);
   });
 
   it("rejects incomplete M4A uploads without creating a source", async () => {

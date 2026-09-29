@@ -20,15 +20,39 @@ For long-recording chunking during local development, install `ffmpeg` and `ffpr
 
 The default local configuration uses Groq for transcription and reasoning: `whisper-large-v3-turbo` converts audio to text, and `openai/gpt-oss-120b` produces structured summaries, decisions, action items, follow-ups, and unresolved questions. When `LLM_API_KEY` is empty, reasoning reuses `TRANSCRIPTION_API_KEY`; set it explicitly to use a separate credential. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE=mock` for deterministic local tests. Legacy `AI_*` variables remain supported.
 
-### Local reasoning with Ollama
+### Local-first transcription tracer
 
-Ollama can handle analysis on the Mac without sending the transcript to Groq. The `gpt-oss:20b` model is already installed on the development Mac. Start the local API with:
+The Mac already has a local Whisper.cpp `large-v3-turbo` wrapper with Apple Metal acceleration. Run the same API with local transcription and deterministic local analysis using:
 
 ```bash
-npm run dev:api:local
+npm run dev:api:local-whisper
 ```
 
+This keeps the existing Groq/ai-lab provider path unchanged for `npm run dev:api`. The iOS Debug configuration already targets the Mac API over its Tailscale address; after starting this command, record or upload from the Debug app and the API will persist the transcript returned by the Mac-local Whisper process. Timing and failure records are emitted through the API logger, and per-recording Whisper artifacts are kept under `LOCAL_WHISPER_OUTPUT_DIR`.
+
+### Local reasoning with Ollama
+
+Ollama can handle analysis on the Mac without sending the transcript to Groq. The first verified local model is `qwen3:8b`; it is used together with the Mac-local Whisper provider by:
+
+```bash
+npm run dev:api:local-qwen
+```
+
+This command keeps the complete recording path local: Whisper transcribes the audio, then Qwen produces the structured meeting analysis. Long transcripts are analyzed in bounded, timestamp-preserving windows and merged locally; the command also disables hidden reasoning and bounds each Qwen request to two minutes. The existing `dev:api:local` command remains available for the older `gpt-oss:20b` Ollama setup when that model is installed.
+
 The Mac transcriber’s “Send transcript to Noted” sheet includes a “Use Local Mac” shortcut for `http://127.0.0.1:3333`. The existing Groq settings remain available through the normal `npm run dev:api` command.
+
+### Hosted web using the Mac-local processor
+
+The local API listens on all interfaces and is reachable over the Mac’s Tailscale address. For an HTTPS browser connection, expose only the API to your tailnet:
+
+```bash
+tailscale serve --bg --yes http://127.0.0.1:3333
+```
+
+Set `VITE_API_BASE_URL` to the HTTPS URL Tailscale prints when building the web app. The browser will then save recordings to the Mac API, where `npm run dev:api:local-qwen` runs local Whisper followed by Qwen. The API uses cross-origin credentials only for the HTTPS Tailscale route; it does not expose Ollama directly. Do not use Tailscale Funnel for this private workflow.
+
+If the hosted Cloudflare route receives a recording instead, it now preserves the source and audio before Groq processing. A provider-size failure leaves the recording available for retry or local processing rather than deleting it.
 
 To keep the MacBook local stack available after login or restart, install the user-level services once:
 

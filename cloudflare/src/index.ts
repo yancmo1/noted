@@ -321,7 +321,9 @@ async function handleRequest(request: Request, env: Env) {
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return json({ error: "A file is required" }, { status: 400 });
-    if (file.size > 25 * 1024 * 1024) return json({ error: "Uploaded file exceeds Groq's current 25 MB speech limit." }, { status: 413 });
+    // Retain the original recording before queueing provider work. The queue
+    // may later mark it partial when the configured provider rejects its size,
+    // but the user's source and audio must remain recoverable.
     const clientRecordingId = text(form.get("clientRecordingId")) || id();
     const mimeType = file.type || "audio/mp4";
     const mode = text(form.get("consentMode")) || "private_thought";

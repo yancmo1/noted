@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { config } from "./config.js";
+import { chunkText } from "./chunking.js";
+import { processingError, processingInfo } from "./diagnostics.js";
+import { LocalWhisperTranscriptionProvider } from "./localWhisper.js";
 import type { ClaimState, EntityType, MemoryType, TranscriptWord } from "./types.js";
 
 export interface EvidenceHint {
@@ -249,35 +252,69 @@ function normalizeAnalysis(value: any) {
     segmentIndex: Math.max(0, Math.trunc(Number(item?.segmentIndex) || 0)),
     text: usableText(item?.text),
   })) : [];
-  const claims = (items: unknown) => Array.isArray(items) ? items.map((item: any) => ({
-    text: usableText(item?.text),
-    confidence: boundedConfidence(item?.confidence),
-    evidence: evidence(item?.evidence),
-  })).filter((item) => item.text) : [];
+  const claims = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => {
+      const value = typeof item === "string" ? { text: item } : item;
+      return {
+        text: usableText(value?.text),
+        confidence: boundedConfidence(value?.confidence),
+        evidence: evidence(value?.evidence),
+      };
+    }).filter((item) => item.text);
+  };
+  const memories = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => {
+      const memory = typeof item === "string" ? { content: item } : item;
+      return {
+        type: memoryTypes.has(memory?.type) ? memory.type : "observation",
+        content: usableText(memory?.content),
+        importance: boundedConfidence(memory?.importance, 0.5),
+        confidence: boundedConfidence(memory?.confidence),
+        evidence: evidence(memory?.evidence),
+      };
+    }).filter((item: any) => item.content);
+  };
+  const entities = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => {
+      const entity = typeof item === "string" ? { name: item } : item;
+      return {
+        type: entityTypes.has(entity?.type) ? entity.type : "topic",
+        name: usableText(entity?.name),
+      };
+    }).filter((item: any) => item.name);
+  };
+  const openLoops = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => {
+      const loop = typeof item === "string" ? { description: item } : item;
+      return {
+        description: usableText(loop?.description),
+        confidence: boundedConfidence(loop?.confidence),
+        evidence: evidence(loop?.evidence),
+      };
+    }).filter((item: any) => item.description);
+  };
+  const relationships = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => {
+      const relationship = typeof item === "string" ? { entityName: item, relationshipType: "mentions" } : item;
+      return {
+        entityName: usableText(relationship?.entityName),
+        relationshipType: usableText(relationship?.relationshipType),
+        confidence: boundedConfidence(relationship?.confidence),
+      };
+    }).filter((item: any) => item.entityName && item.relationshipType);
+  };
   const meeting = value?.meeting && typeof value.meeting === "object" ? value.meeting : {};
   return {
     summary: usableText(value?.summary),
-    memories: Array.isArray(value?.memories) ? value.memories.map((item: any) => ({
-      type: memoryTypes.has(item?.type) ? item.type : "observation",
-      content: usableText(item?.content),
-      importance: boundedConfidence(item?.importance, 0.5),
-      confidence: boundedConfidence(item?.confidence),
-      evidence: evidence(item?.evidence),
-    })).filter((item: any) => item.content) : [],
-    entities: Array.isArray(value?.entities) ? value.entities.map((item: any) => ({
-      type: entityTypes.has(item?.type) ? item.type : "topic",
-      name: usableText(item?.name),
-    })).filter((item: any) => item.name) : [],
-    openLoops: Array.isArray(value?.openLoops) ? value.openLoops.map((item: any) => ({
-      description: usableText(item?.description),
-      confidence: boundedConfidence(item?.confidence),
-      evidence: evidence(item?.evidence),
-    })).filter((item: any) => item.description) : [],
-    relationships: Array.isArray(value?.relationships) ? value.relationships.map((item: any) => ({
-      entityName: usableText(item?.entityName),
-      relationshipType: usableText(item?.relationshipType),
-      confidence: boundedConfidence(item?.confidence),
-    })).filter((item: any) => item.entityName && item.relationshipType) : [],
+    memories: memories(value?.memories),
+    entities: entities(value?.entities),
+    openLoops: openLoops(value?.openLoops),
+    relationships: relationships(value?.relationships),
     meeting: {
       summary: usableText(value?.summary),
       keyPoints: claims(meeting.keyPoints),
@@ -287,6 +324,257 @@ function normalizeAnalysis(value: any) {
       unresolvedQuestions: claims(meeting.unresolvedQuestions),
     },
   };
+}
+
+interface AnalysisWindow {
+  text: string;
+  evidenceSegments?: EvidenceHint[];
+  index: number;
+  total: number;
+}
+
+type ConfidenceValue = { value: string; confidence: number; state?: ClaimState };
+
+function splitAnalysisInput(text: string, evidenceSegments: EvidenceHint[] | undefined, maxChars: number): AnalysisWindow[] {
+  if (maxChars <= 0 || text.length <= maxChars) return [{ text, evidenceSegments, index: 0, total: 1 }];
+
+  const windows: Array<{ text: string; evidenceSegments?: EvidenceHint[] }> = [];
+  if (evidenceSegments?.length) {
+    let current: EvidenceHint[] = [];
+    let currentChars = 0;
+    const flush = () => {
+      if (!current.length) return;
+      windows.push({ text: current.map((segment) => segment.text.trim()).join("\n"), evidenceSegments: current });
+      current = [];
+      currentChars = 0;
+    };
+
+    for (const segment of evidenceSegments) {
+      const segmentText = segment.text.trim();
+      if (!segmentText) continue;
+      const candidateChars = currentChars + (current.length ? 1 : 0) + segmentText.length;
+      if (current.length && candidateChars > maxChars) flush();
+      current.push(segment);
+      currentChars += (current.length > 1 ? 1 : 0) + segmentText.length;
+    }
+    flush();
+  }
+
+  if (!windows.length) {
+    const overlap = Math.min(120, Math.floor(maxChars / 5));
+    const chunks = chunkText(text, maxChars, overlap);
+    return chunks.map((chunk, index) => ({ text: chunk, index, total: chunks.length }));
+  }
+
+  return windows.map((window, index) => ({ ...window, index, total: windows.length }));
+}
+
+function normalizedKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function uniqueTexts(values: string[]) {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const text = value.trim();
+    const key = normalizedKey(text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
+function mergeEvidence(...groups: Array<EvidenceHint[] | undefined>): EvidenceHint[] | undefined {
+  const result: EvidenceHint[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const evidence of group ?? []) {
+      const key = `${evidence.segmentIndex}|${evidence.startMs ?? ""}|${evidence.endMs ?? ""}|${normalizedKey(evidence.text)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(evidence);
+    }
+  }
+  return result.length ? result : undefined;
+}
+
+function strongestValue(left: ConfidenceValue | undefined, right: ConfidenceValue | undefined) {
+  if (!left) return right;
+  if (!right || right.confidence <= left.confidence) return left;
+  return right;
+}
+
+function mergeClaims(groups: AnalysisClaim[][]): AnalysisClaim[] {
+  const result: AnalysisClaim[] = [];
+  const indexes = new Map<string, number>();
+  for (const claim of groups.flat()) {
+    const key = normalizedKey(claim.text);
+    if (!key) continue;
+    const index = indexes.get(key);
+    if (index === undefined) {
+      indexes.set(key, result.length);
+      result.push({ ...claim, evidence: mergeEvidence(claim.evidence) });
+      continue;
+    }
+    const existing = result[index];
+    existing.confidence = Math.max(existing.confidence, claim.confidence);
+    existing.evidence = mergeEvidence(existing.evidence, claim.evidence);
+  }
+  return result;
+}
+
+function mergeActionItems(groups: AnalysisActionItem[][]): AnalysisActionItem[] {
+  const result: AnalysisActionItem[] = [];
+  const indexes = new Map<string, number>();
+  for (const item of groups.flat()) {
+    const key = normalizedKey(item.text);
+    if (!key) continue;
+    const index = indexes.get(key);
+    if (index === undefined) {
+      indexes.set(key, result.length);
+      result.push({ ...item, evidence: mergeEvidence(item.evidence) });
+      continue;
+    }
+    const existing = result[index];
+    existing.confidence = Math.max(existing.confidence, item.confidence);
+    existing.evidence = mergeEvidence(existing.evidence, item.evidence);
+    existing.owner = strongestValue(existing.owner, item.owner);
+    existing.dueAt = strongestValue(existing.dueAt, item.dueAt);
+  }
+  return result;
+}
+
+function mergeMemories(groups: Analysis["memories"][]): Analysis["memories"] {
+  const result: Analysis["memories"] = [];
+  const indexes = new Map<string, number>();
+  for (const memory of groups.flat()) {
+    const key = `${memory.type}|${normalizedKey(memory.content)}`;
+    if (!memory.content.trim()) continue;
+    const index = indexes.get(key);
+    if (index === undefined) {
+      indexes.set(key, result.length);
+      result.push({ ...memory, evidence: mergeEvidence(memory.evidence) });
+      continue;
+    }
+    const existing = result[index];
+    existing.importance = Math.max(existing.importance, memory.importance);
+    existing.confidence = Math.max(existing.confidence, memory.confidence);
+    existing.occurredAt = existing.occurredAt ?? memory.occurredAt;
+    existing.evidence = mergeEvidence(existing.evidence, memory.evidence);
+  }
+  return result;
+}
+
+function mergeEntities(groups: Analysis["entities"][]): Analysis["entities"] {
+  const result: Analysis["entities"] = [];
+  const seen = new Set<string>();
+  for (const entity of groups.flat()) {
+    const key = `${entity.type}|${normalizedKey(entity.name)}`;
+    if (!entity.name.trim() || seen.has(key)) continue;
+    seen.add(key);
+    result.push(entity);
+  }
+  return result;
+}
+
+function mergeOpenLoops(groups: Analysis["openLoops"][]): Analysis["openLoops"] {
+  const result: Analysis["openLoops"] = [];
+  const indexes = new Map<string, number>();
+  for (const loop of groups.flat()) {
+    const key = normalizedKey(loop.description);
+    if (!key) continue;
+    const index = indexes.get(key);
+    if (index === undefined) {
+      indexes.set(key, result.length);
+      result.push({ ...loop, evidence: mergeEvidence(loop.evidence) });
+      continue;
+    }
+    const existing = result[index];
+    existing.confidence = Math.max(existing.confidence, loop.confidence);
+    existing.dueAt = existing.dueAt ?? loop.dueAt;
+    existing.evidence = mergeEvidence(existing.evidence, loop.evidence);
+  }
+  return result;
+}
+
+function mergeRelationships(groups: Analysis["relationships"][]): Analysis["relationships"] {
+  const result: Analysis["relationships"] = [];
+  const seen = new Set<string>();
+  for (const relationship of groups.flat()) {
+    const key = `${normalizedKey(relationship.entityName)}|${normalizedKey(relationship.relationshipType)}`;
+    if (!relationship.entityName.trim() || !relationship.relationshipType.trim() || seen.has(key)) continue;
+    seen.add(key);
+    result.push(relationship);
+  }
+  return result;
+}
+
+function mergeAnalyses(analyses: Analysis[]): Analysis {
+  const summary = uniqueTexts(analyses.flatMap((analysis) => [analysis.summary, analysis.meeting.summary])).join(" ").slice(0, 1000);
+  return {
+    summary,
+    memories: mergeMemories(analyses.map((analysis) => analysis.memories)),
+    entities: mergeEntities(analyses.map((analysis) => analysis.entities)),
+    openLoops: mergeOpenLoops(analyses.map((analysis) => analysis.openLoops)),
+    relationships: mergeRelationships(analyses.map((analysis) => analysis.relationships)),
+    meeting: {
+      summary,
+      keyPoints: mergeClaims(analyses.map((analysis) => analysis.meeting.keyPoints)),
+      decisions: mergeClaims(analyses.map((analysis) => analysis.meeting.decisions)),
+      actionItems: mergeActionItems(analyses.map((analysis) => analysis.meeting.actionItems)),
+      suggestedFollowUps: mergeClaims(analyses.map((analysis) => analysis.meeting.suggestedFollowUps)),
+      unresolvedQuestions: mergeClaims(analyses.map((analysis) => analysis.meeting.unresolvedQuestions)),
+    },
+  };
+}
+
+function sanitizeAnalysisEvidence(analysis: Analysis, allowedEvidence: EvidenceHint[] | undefined, inferMissing: boolean): Analysis {
+  if (!allowedEvidence?.length) return analysis;
+  const canonical = new Map(allowedEvidence.map((evidence) => [evidence.segmentIndex, evidence]));
+  const evidence = (hints: EvidenceHint[] | undefined, text: string) => {
+    const result: EvidenceHint[] = [];
+    for (const hint of hints ?? []) {
+      const source = canonical.get(hint.segmentIndex);
+      if (!source) continue;
+      result.push({ segmentIndex: source.segmentIndex, startMs: source.startMs, endMs: source.endMs, text: source.text });
+    }
+    return result.length ? mergeEvidence(result) : inferMissing ? inferredEvidence(text, allowedEvidence) : undefined;
+  };
+  const claims = (items: AnalysisClaim[]) => items.map((item) => ({ ...item, evidence: evidence(item.evidence, item.text) }));
+  const actionItems = (items: AnalysisActionItem[]) => items.map((item) => ({ ...item, evidence: evidence(item.evidence, item.text) }));
+  return {
+    ...analysis,
+    memories: analysis.memories.map((item) => ({ ...item, evidence: evidence(item.evidence, item.content) })),
+    openLoops: analysis.openLoops.map((item) => ({ ...item, evidence: evidence(item.evidence, item.description) })),
+    meeting: {
+      ...analysis.meeting,
+      keyPoints: claims(analysis.meeting.keyPoints),
+      decisions: claims(analysis.meeting.decisions),
+      actionItems: actionItems(analysis.meeting.actionItems),
+      suggestedFollowUps: claims(analysis.meeting.suggestedFollowUps),
+      unresolvedQuestions: claims(analysis.meeting.unresolvedQuestions),
+    },
+  };
+}
+
+function isLocalOllamaUrl(url: string) {
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost):11434(?:\/|$)/i.test(url);
+}
+
+const evidenceStopWords = new Set(["about", "after", "again", "also", "been", "being", "from", "have", "into", "just", "more", "only", "that", "their", "there", "these", "they", "this", "with", "would"]);
+
+function inferredEvidence(text: string, allowedEvidence: EvidenceHint[]): EvidenceHint[] | undefined {
+  const tokens = text.toLowerCase().match(/[a-z0-9][a-z0-9'-]*/g) ?? [];
+  const significant = [...new Set(tokens.filter((token) => (token.length >= 4 || /^\d{2,}$/.test(token)) && !evidenceStopWords.has(token)))];
+  if (!significant.length) return undefined;
+  const scored = allowedEvidence.map((segment) => {
+    const segmentTokens = new Set(segment.text.toLowerCase().match(/[a-z0-9][a-z0-9'-]*/g) ?? []);
+    return { segment, score: significant.filter((token) => segmentTokens.has(token)).length };
+  }).filter((item) => item.score > 0).sort((left, right) => right.score - left.score);
+  const best = scored[0];
+  return best && best.score >= 2 ? [best.segment] : undefined;
 }
 
 function sentenceParts(text: string) {
@@ -479,32 +767,41 @@ export class OpenAICompatibleProvider implements AIProvider {
     return new Error(`AI provider returned ${response.status}: ${detail}`);
   }
 
-  async analyzeSource(text: string, title: string, evidenceSegments?: EvidenceHint[]) {
-    if (!(config.llmBaseUrl && config.llmApiKey && config.llmMode === "real")) return this.fallback.analyzeSource(text, title, evidenceSegments);
+  private async analyzeWindow(text: string, title: string, evidenceSegments: EvidenceHint[] | undefined, window: AnalysisWindow): Promise<Analysis> {
+    const localOllama = isLocalOllamaUrl(config.llmBaseUrl);
+    const scopeInstruction = window.total > 1
+      ? `This is analysis window ${window.index + 1} of ${window.total}. Analyze only facts explicitly present in this window; do not infer facts from omitted windows. Never invent a date, time, year, name, or medical detail. If a year is not explicit, leave it out. Evidence must use the supplied segmentIndex values and exact supplied evidence text.`
+      : "Use only facts explicitly present in the transcript. Never invent a date, time, year, name, or medical detail. If a year is not explicit, leave it out. Evidence must use the supplied segmentIndex values and exact supplied evidence text.";
+    const systemPrompt = localOllama
+      ? `Return one compact JSON object with exactly these fields: summary (string), memories (array of short strings), entities (array of short strings), openLoops (array of short strings), relationships (array of short strings), and meeting (object with keyPoints, decisions, actionItems, suggestedFollowUps, and unresolvedQuestions arrays of short strings). Keep each array to five items or fewer and each item concise. Do not include evidence objects, markdown, or commentary. ${scopeInstruction.replace(/ Evidence must use.*$/, "")}`
+      : `Extract a concise, evidence-grounded meeting record from the supplied transcript. Always return all six top-level fields required by the schema: summary, memories, entities, openLoops, relationships, and meeting. Meeting must always contain keyPoints, decisions, actionItems, suggestedFollowUps, and unresolvedQuestions. Use an empty array for every unsupported category; never omit a required field. Return arrays of JSON objects, not prose strings. Memory objects use type, content, importance, confidence, and evidence. Claim objects use text, confidence, and evidence. Evidence objects use segmentIndex and exact text from the supplied evidence segments. Distinguish explicit decisions and commitments from suggestions. Action items and follow-ups must be genuinely actionable. Keep each category to its five most useful items so the response stays compact. ${scopeInstruction}`;
+    const userContent = localOllama
+      ? `Title: ${title}\nTranscript:\n${text}`
+      : `Title: ${title}\nEvidence segments: ${JSON.stringify(evidenceSegments ?? [])}\nTranscript:\n${text}`;
     const response = await fetch(`${config.llmBaseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${config.llmApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: config.llmModel,
         messages: [
-          {
-            role: "system",
-            content: "Extract a concise, evidence-grounded meeting record from the supplied transcript. Always return all six top-level fields required by the schema: summary, memories, entities, openLoops, relationships, and meeting. Meeting must always contain keyPoints, decisions, actionItems, suggestedFollowUps, and unresolvedQuestions. Use an empty array for every unsupported category; never omit a required field. Distinguish explicit decisions and commitments from suggestions. Action items and follow-ups must be genuinely actionable. Evidence entries must copy the relevant segmentIndex and text from the supplied evidence segments. Keep each category to its five most useful items so the response stays compact.",
-          },
-          { role: "user", content: `Title: ${title}\nEvidence segments: ${JSON.stringify(evidenceSegments ?? [])}\nTranscript:\n${text}` },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "memory_garden_analysis",
-            strict: true,
-            schema: analysisJSONSchema,
+        response_format: localOllama
+          ? { type: "json_object" }
+          : {
+            type: "json_schema",
+            json_schema: {
+              name: "memory_garden_analysis",
+              strict: true,
+              schema: analysisJSONSchema,
+            },
           },
-        },
-        reasoning_effort: "low",
-        max_completion_tokens: 4096,
+        reasoning_effort: config.llmReasoningEffort,
+        max_completion_tokens: localOllama ? 1024 : 4096,
         temperature: 0.1,
       }),
+      ...(config.llmAnalysisTimeoutMs > 0 ? { signal: AbortSignal.timeout(config.llmAnalysisTimeoutMs) } : {}),
     });
     if (!response.ok) throw await this.providerError(response);
     const json = await response.json() as any;
@@ -512,7 +809,37 @@ export class OpenAICompatibleProvider implements AIProvider {
     if (typeof content !== "string") throw new Error("AI provider returned no structured content");
     const parsed = analysisSchema.parse(normalizeAnalysis(JSON.parse(content)));
     const fallbackMeeting = await this.fallback.analyzeSource(text, title, evidenceSegments);
-    return { ...parsed, meeting: parsed.meeting ?? fallbackMeeting.meeting } as Analysis;
+    const analysis: Analysis = {
+      summary: parsed.summary,
+      memories: parsed.memories,
+      entities: parsed.entities,
+      openLoops: parsed.openLoops,
+      relationships: parsed.relationships,
+      meeting: parsed.meeting ?? fallbackMeeting.meeting,
+    };
+    return sanitizeAnalysisEvidence(analysis, evidenceSegments, localOllama);
+  }
+
+  async analyzeSource(text: string, title: string, evidenceSegments?: EvidenceHint[]) {
+    if (!(config.llmBaseUrl && config.llmApiKey && config.llmMode === "real")) return this.fallback.analyzeSource(text, title, evidenceSegments);
+    const windows = splitAnalysisInput(text, evidenceSegments, config.llmAnalysisChunkChars);
+    if (windows.length === 1) return this.analyzeWindow(text, title, evidenceSegments, windows[0]);
+
+    const analyses: Analysis[] = [];
+    for (const window of windows) {
+      const startedAt = performance.now();
+      processingInfo({ event: "analysis_chunk_started", model: config.llmModel, chunkIndex: window.index, chunkCount: window.total, textCharacters: window.text.length, evidenceSegments: window.evidenceSegments?.length ?? 0 }, "Local analysis window started");
+      try {
+        const analysis = await this.analyzeWindow(window.text, title, window.evidenceSegments, window);
+        analyses.push(analysis);
+        processingInfo({ event: "analysis_chunk_completed", model: config.llmModel, chunkIndex: window.index, chunkCount: window.total, elapsedMs: Math.round(performance.now() - startedAt), memoryCount: analysis.memories.length, actionItemCount: analysis.meeting.actionItems.length }, "Local analysis window completed");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown analysis error";
+        processingError({ event: "analysis_chunk_failed", model: config.llmModel, chunkIndex: window.index, chunkCount: window.total, elapsedMs: Math.round(performance.now() - startedAt), error: message }, "Local analysis window failed");
+        throw new Error(`Analysis window ${window.index + 1}/${window.total} failed: ${message}`);
+      }
+    }
+    return mergeAnalyses(analyses);
   }
 
   async answerQuestion(question: string, context: string) {
@@ -529,6 +856,9 @@ export class OpenAICompatibleProvider implements AIProvider {
 }
 
 export const aiProvider: AIProvider = config.llmMode === "real" ? new OpenAICompatibleProvider() : new MockAIProvider();
-export const transcriptionProvider: TranscriptionProvider | undefined = config.transcriptionMode !== "disabled" && config.transcriptionApiKey && config.transcriptionBaseUrl && config.transcriptionModel
-  ? new OpenAICompatibleTranscriptionProvider()
-  : undefined;
+const localWhisperSelected = ["local-whisper", "mac-local"].includes(config.transcriptionProvider.toLowerCase());
+export const transcriptionProvider: TranscriptionProvider | undefined = localWhisperSelected && config.transcriptionMode !== "disabled"
+  ? new LocalWhisperTranscriptionProvider()
+  : config.transcriptionMode !== "disabled" && config.transcriptionApiKey && config.transcriptionBaseUrl && config.transcriptionModel
+    ? new OpenAICompatibleTranscriptionProvider()
+    : undefined;

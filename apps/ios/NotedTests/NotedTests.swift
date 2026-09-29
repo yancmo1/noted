@@ -681,6 +681,64 @@ final class NotedTests: XCTestCase {
             XCTAssertFalse(error.localizedDescription.contains("secret-value"))
         }
     }
+
+    func testCalendarCandidateDateBuilderUsesCurrentYearForMonthDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 29, hour: 12)))
+        let candidate = CalendarCandidate(
+            id: "doctor-follow-up",
+            title: "Doctor follow-up",
+            dateText: "November 10",
+            timeText: "10:45 AM",
+            datePrecision: "month_day",
+            confidence: 0.82,
+            state: .generated,
+            needsConfirmation: true,
+            evidenceRefs: []
+        )
+
+        let date = try XCTUnwrap(CalendarCandidateDateBuilder.startDate(for: candidate, calendar: calendar, now: now))
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 11)
+        XCTAssertEqual(components.day, 10)
+        XCTAssertEqual(components.hour, 10)
+        XCTAssertEqual(components.minute, 45)
+    }
+
+    func testCalendarLinkStoreReplacesTheSameCandidateIdempotently() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let store = CalendarLinkStore(baseDirectory: base)
+        let first = CalendarEventLink(
+            sourceID: "source-1",
+            candidateID: "candidate-1",
+            eventIdentifier: "event-1",
+            calendarIdentifier: "calendar-1",
+            calendarTitle: "Personal",
+            title: "Doctor follow-up",
+            startDate: Date(timeIntervalSinceReferenceDate: 10),
+            endDate: Date(timeIntervalSinceReferenceDate: 1_810),
+            createdAt: Date(timeIntervalSinceReferenceDate: 20)
+        )
+        let replacement = CalendarEventLink(
+            sourceID: first.sourceID,
+            candidateID: first.candidateID,
+            eventIdentifier: "event-2",
+            calendarIdentifier: first.calendarIdentifier,
+            calendarTitle: first.calendarTitle,
+            title: first.title,
+            startDate: first.startDate,
+            endDate: first.endDate,
+            createdAt: Date(timeIntervalSinceReferenceDate: 30)
+        )
+
+        try store.save(first)
+        XCTAssertEqual(store.link(for: first.sourceID, candidateID: first.candidateID), first)
+        try store.save(replacement)
+        XCTAssertEqual(store.load(), [replacement])
+    }
 }
 
 private final class StubKeychainOperations: KeychainOperations {

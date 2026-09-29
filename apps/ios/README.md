@@ -18,7 +18,7 @@ open Noted.xcodeproj
 
 For the stable distribution path, use the shared `Noted` scheme in Xcode Cloud and choose the latest non-beta Xcode runner. The App Store listing name is `Noted by Shepswork.`; the in-app and Xcode product name is `Noted`. The repository-side checks and App Store Connect setup are documented in [`docs/APPLE_WATCH_XCODE_CLOUD.md`](../../docs/APPLE_WATCH_XCODE_CLOUD.md).
 
-The editable Debug configuration defaults to ai-lab's Tailscale address (`http://100.88.76.19:3333`) so the physical iPhone can reach the API over Tailscale. Change only the address in `apps/ios/Config/Debug.xcconfig` when using another host, LAN, or local simulator setup, using the xcconfig-safe form such as `API_BASE_URL = http:/$()/192.168.1.20:3333`. Ensure the phone can reach that address before launching the app.
+The editable Debug configuration defaults to this Mac's Tailscale address (`http://100.122.189.114:3333`) so the physical iPhone can reach the local API over Tailscale. Change only the address in `apps/ios/Config/Debug.xcconfig` when using another host, LAN, or local simulator setup, using the xcconfig-safe form such as `API_BASE_URL = http:/$()/192.168.1.20:3333`. Ensure the phone can reach that address before launching the app.
 
 The app uses the existing local password login. The password is stored in Keychain; no AI or Groq credentials are shipped in the app.
 

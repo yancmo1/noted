@@ -9,6 +9,8 @@ export type RecordingStatus = "capturing" | "uploaded" | "processing" | "ready" 
 export type ClaimState = "generated" | "confirmed" | "edited";
 export type ActionItemStatus = "open" | "done";
 export type JobStatus = "pending" | "processing" | "retry_scheduled" | "complete" | "failed";
+export type ProcessingStageStatus = "not_started" | "processing" | "complete" | "failed";
+export type CalendarDatePrecision = "month_day" | "full_date";
 
 export interface EvidenceRef {
   sourceId: string;
@@ -38,6 +40,37 @@ export interface MeetingActionItem extends MeetingClaim {
   status: ActionItemStatus;
 }
 
+export interface CalendarCandidate {
+  id: string;
+  title: string;
+  dateText: string;
+  timeText?: string;
+  datePrecision: CalendarDatePrecision;
+  confidence: number;
+  state: ClaimState;
+  needsConfirmation: boolean;
+  evidenceRefs: EvidenceRef[];
+}
+
+export interface ProcessingStageDiagnostics {
+  status: ProcessingStageStatus;
+  elapsedMs?: number;
+  provider?: string;
+  model?: string;
+  skipped?: boolean;
+  segmentCount?: number;
+  transcriptCharacters?: number;
+  error?: string;
+}
+
+export interface ProcessingDiagnostics {
+  startedAt: string;
+  completedAt?: string;
+  elapsedMs?: number;
+  transcription: ProcessingStageDiagnostics;
+  analysis: ProcessingStageDiagnostics;
+}
+
 export interface MeetingBrief {
   schemaVersion: 1;
   generatedAt: string;
@@ -47,6 +80,7 @@ export interface MeetingBrief {
   actionItems: MeetingActionItem[];
   suggestedFollowUps: MeetingClaim[];
   unresolvedQuestions: MeetingClaim[];
+  calendarCandidates: CalendarCandidate[];
 }
 
 export interface Source {
@@ -73,6 +107,7 @@ export interface Source {
   consentAcknowledged?: boolean;
   recordingSessionId?: string;
   processingVersion?: number;
+  processingDiagnostics?: ProcessingDiagnostics;
   meetingBrief?: MeetingBrief;
 }
 

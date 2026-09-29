@@ -58,6 +58,7 @@
 		EDEE74538EDC6CD2E1E7142A /* LocalRecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BB38D98DEACCC91F3E62FA /* LocalRecordingStore.swift */; };
 		F7AADA47A92C0EE993698156 /* AppIcon98x98@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 2E6A7D0E1FE194A92B0620EF /* AppIcon98x98@2x.png */; };
 		F95A0670BDA6E00BF4CF65C9 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C302795B80B49259D9F7AF3 /* APIClient.swift */; };
+		C7A68D4A9E1D4BB3A9E7C1F0 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A68D4A9E1D4BB3A9E7C1F0 /* CalendarService.swift */; };
 		FA6CB82F57E5D27E8F032C72 /* WatchComplicationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3870A41FCFC392F1A312B348 /* WatchComplicationState.swift */; };
 		FE3755B0F3B8D3AA17457605 /* AppIcon40x40@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = C08686C8B8D8142D9FC3CE12 /* AppIcon40x40@2x.png */; };
 /* End PBXBuildFile section */
@@ -165,6 +166,7 @@
 		4536872AEC2953741BD4BEEC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		472F712B8D4D51699B584FC9 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		4C302795B80B49259D9F7AF3 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		C8A68D4A9E1D4BB3A9E7C1F0 /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		52B96F815DBB781142ECCF93 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		53E9828DF3043463ED937845 /* RecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsView.swift; sourceTree = "<group>"; };
 		574DA080D32B7247B6091E8A /* RecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordView.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 			isa = PBXGroup;
 			children = (
 				4C302795B80B49259D9F7AF3 /* APIClient.swift */,
+				C8A68D4A9E1D4BB3A9E7C1F0 /* CalendarService.swift */,
 				2C0016205EA96B2DA1747F14 /* AudioPlayer.swift */,
 				09FBF5F0A6CF77C76E4AA13E /* AudioRecorder.swift */,
 				149ED0A478F92B775FFCCF31 /* ConnectivityMonitor.swift */,
@@ -679,6 +682,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F95A0670BDA6E00BF4CF65C9 /* APIClient.swift in Sources */,
+				C7A68D4A9E1D4BB3A9E7C1F0 /* CalendarService.swift in Sources */,
 				3CB071BB67665E251437C626 /* APIModels.swift in Sources */,
 				94410A6881B2112A1C99AB6B /* AppModel.swift in Sources */,
 				3BC63B36C73089354CB98699 /* AskView.swift in Sources */,

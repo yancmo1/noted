@@ -11,6 +11,7 @@ import { store } from "./db.js";
 import { queueSource } from "./processor.js";
 import { aiProvider, transcriptionProvider } from "./ai.js";
 import { validateAudioFile } from "./audioValidation.js";
+import { setProcessingLogger } from "./diagnostics.js";
 import type { ConsentMode, LoopStatus, SourceType, TranscriptSegment } from "./types.js";
 
 type MultipartUpload = {
@@ -42,8 +43,24 @@ function safeFileName(value: string, fallback: string) {
   return safe || fallback;
 }
 
+function authCookieOptions(request: any) {
+  const forwardedProtocol = String(request.headers["x-forwarded-proto"] ?? "").split(",", 1)[0].trim().toLowerCase();
+  const secure = forwardedProtocol === "https" || request.protocol === "https" || process.env.NODE_ENV === "production";
+  const origin = String(request.headers.origin ?? "");
+  const requestOrigin = `${secure ? "https" : "http"}://${String(request.headers.host ?? "")}`;
+  const crossOrigin = Boolean(origin && origin !== requestOrigin);
+  return {
+    httpOnly: true,
+    sameSite: secure && crossOrigin ? "none" as const : "lax" as const,
+    secure,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  };
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: config.maxUploadBytes + 1024 * 1024 });
+  setProcessingLogger(app.log);
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1 } });
   await app.register(cookie);
@@ -67,7 +84,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (!body?.password || body.password !== config.authPassword) return reply.code(401).send({ error: "Incorrect password" });
     const token = crypto.randomUUID();
     sessions.set(token, { createdAt: Date.now() });
-    reply.setCookie("mg_session", token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 24 * 30 });
+    reply.setCookie("mg_session", token, authCookieOptions(request));
     return { ok: true };
   });
 
@@ -122,11 +139,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     let upload: MultipartUpload | undefined;
     try {
       upload = await multipartUpload(request);
-      const clientRecordingId = String(field(upload.fields, "clientRecordingId") ?? "").trim();
+      const client = clientType(field(upload.fields, "client"));
+      const suppliedClientRecordingId = String(field(upload.fields, "clientRecordingId") ?? "").trim();
+      const clientRecordingId = suppliedClientRecordingId || (client === "web" ? `web-${crypto.randomUUID()}` : "");
       if (!clientRecordingId) {
         await fsp.rm(upload.filePath, { force: true });
         upload.filePath = "";
-        return reply.code(400).send({ error: "clientRecordingId is required" });
+        return reply.code(400).send({ error: "clientRecordingId is required for native uploads" });
       }
       const existing = store.findSourceByClientRecordingId(clientRecordingId);
       if (existing) {
@@ -143,13 +162,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         return reply.code(400).send({ error: "Consent acknowledgement is required for conversation or meeting mode" });
       }
 
-      const client = clientType(field(upload.fields, "client"));
-      if (clientRecordingId && client !== "native") {
-        await fsp.rm(upload.filePath, { force: true });
-        upload.filePath = "";
-        return reply.code(400).send({ error: "Native uploads must identify client=native" });
-      }
-      if (clientRecordingId && (!field(upload.fields, "title") || !field(upload.fields, "startedAt") || !field(upload.fields, "endedAt") || field(upload.fields, "durationMs") === undefined)) {
+      if (client === "native" && (!field(upload.fields, "title") || !field(upload.fields, "startedAt") || !field(upload.fields, "endedAt") || field(upload.fields, "durationMs") === undefined)) {
         await fsp.rm(upload.filePath, { force: true });
         upload.filePath = "";
         return reply.code(400).send({ error: "Native uploads require title, start/end timestamps, and duration" });
@@ -406,7 +419,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return { answer, citations: results.slice(0, 5).map((result: any) => { const evidence = result.evidenceRefs?.[0]; return { memoryId: result.id, sourceId: result.sourceId, sourceTitle: result.source?.title, sourceType: result.source?.type, capturedAt: result.source?.capturedAt, content: result.content, superseded: Boolean(result.supersededBy), segmentId: evidence?.segmentId, startMs: evidence?.startMs, endMs: evidence?.endMs, quote: evidence?.quote }; }) };
   });
   app.get("/api/today", async () => { const recent = store.recentSources(); return { openLoops: store.listLoops("open").slice(0, 8), recent, resurfaced: store.resurfaced(), recordings: recent.filter((source) => source.type === "voice"), now: new Date().toISOString() }; });
-  app.get("/api/settings/status", async () => ({ llmMode: config.llmMode === "mock" ? "mock" : "real", llmModel: config.llmModel || "Deterministic Mock AI", embeddingModel: process.env.EMBEDDING_MODEL ?? "Keyword retrieval (local)", transcriptionProvider: config.transcriptionProvider, transcriptionMode: transcriptionProvider ? "configured" : "not configured", transcriptionModel: config.transcriptionModel, transcriptionChunkSeconds: config.transcriptionChunkSeconds, storage: "local filesystem", database: "JSON repository (single API writer)", version: config.version }));
+  app.get("/api/settings/status", async () => ({ llmMode: config.llmMode === "mock" ? "mock" : "real", llmModel: config.llmModel || "Deterministic Mock AI", embeddingModel: process.env.EMBEDDING_MODEL ?? "Keyword retrieval (local)", transcriptionProvider: config.transcriptionProvider, transcriptionMode: transcriptionProvider ? "configured" : "not configured", transcriptionModel: ["local-whisper", "mac-local"].includes(config.transcriptionProvider.toLowerCase()) ? config.localWhisperModel : config.transcriptionModel, transcriptionChunkSeconds: config.transcriptionChunkSeconds, storage: "local filesystem", database: "JSON repository (single API writer)", version: config.version }));
   app.get("/api/export", async () => store.exportData());
 
   return app;

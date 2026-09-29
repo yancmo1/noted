@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
-repo_path="/Users/yancyshepherd/Projects/noted"
+repo_path="/Users/yancyshepherd/Library/CloudStorage/GoogleDrive-yancmo@gmail.com/My Drive/00 - Coding Projects/noted"
 launch_agents_path="/Users/yancyshepherd/Library/LaunchAgents"
 log_path="/Users/yancyshepherd/Library/Logs/Noted"
 user_id="$(/usr/bin/id -u)"

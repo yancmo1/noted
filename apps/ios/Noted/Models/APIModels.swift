@@ -38,6 +38,37 @@ struct MeetingActionItem: Codable, Identifiable, Hashable {
     var status: String
 }
 
+struct CalendarCandidate: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let dateText: String
+    let timeText: String?
+    let datePrecision: String
+    let confidence: Double
+    let state: ClaimState
+    let needsConfirmation: Bool
+    let evidenceRefs: [EvidenceRef]
+}
+
+struct ProcessingStageDiagnostics: Codable, Hashable {
+    let status: String
+    let elapsedMs: Int?
+    let provider: String?
+    let model: String?
+    let skipped: Bool?
+    let segmentCount: Int?
+    let transcriptCharacters: Int?
+    let error: String?
+}
+
+struct ProcessingDiagnostics: Codable, Hashable {
+    let startedAt: String
+    let completedAt: String?
+    let elapsedMs: Int?
+    let transcription: ProcessingStageDiagnostics
+    let analysis: ProcessingStageDiagnostics
+}
+
 struct MeetingBrief: Codable, Hashable {
     let schemaVersion: Int
     let generatedAt: String
@@ -47,6 +78,38 @@ struct MeetingBrief: Codable, Hashable {
     var actionItems: [MeetingActionItem]
     let suggestedFollowUps: [MeetingClaim]
     let unresolvedQuestions: [MeetingClaim]
+    let calendarCandidates: [CalendarCandidate]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, generatedAt, summary, keyPoints, decisions, actionItems
+        case suggestedFollowUps, unresolvedQuestions, calendarCandidates
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        generatedAt = try c.decode(String.self, forKey: .generatedAt)
+        summary = try c.decode(String.self, forKey: .summary)
+        keyPoints = try c.decode([MeetingClaim].self, forKey: .keyPoints)
+        decisions = try c.decode([MeetingClaim].self, forKey: .decisions)
+        actionItems = try c.decode([MeetingActionItem].self, forKey: .actionItems)
+        suggestedFollowUps = try c.decode([MeetingClaim].self, forKey: .suggestedFollowUps)
+        unresolvedQuestions = try c.decode([MeetingClaim].self, forKey: .unresolvedQuestions)
+        calendarCandidates = try c.decodeIfPresent([CalendarCandidate].self, forKey: .calendarCandidates) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(generatedAt, forKey: .generatedAt)
+        try c.encode(summary, forKey: .summary)
+        try c.encode(keyPoints, forKey: .keyPoints)
+        try c.encode(decisions, forKey: .decisions)
+        try c.encode(actionItems, forKey: .actionItems)
+        try c.encode(suggestedFollowUps, forKey: .suggestedFollowUps)
+        try c.encode(unresolvedQuestions, forKey: .unresolvedQuestions)
+        try c.encode(calendarCandidates, forKey: .calendarCandidates)
+    }
 }
 
 struct Source: Codable, Identifiable, Hashable {
@@ -68,13 +131,14 @@ struct Source: Codable, Identifiable, Hashable {
     let consentMode: String?
     let recordingSessionId: String?
     let metadata: [String: String]
+    let processingDiagnostics: ProcessingDiagnostics?
     let meetingBrief: MeetingBrief?
 
     enum CodingKeys: String, CodingKey {
         case id, type, title, originalText, extractedText, createdAt, updatedAt, capturedAt
         case processingStatus, processingError, summary, transcriptText, transcriptStatus
         case durationMs, audioMimeType, consentMode, recordingSessionId, metadata
-        case meetingBrief
+        case processingDiagnostics, meetingBrief
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +161,7 @@ struct Source: Codable, Identifiable, Hashable {
         consentMode = try c.decodeIfPresent(String.self, forKey: .consentMode)
         recordingSessionId = try c.decodeIfPresent(String.self, forKey: .recordingSessionId)
         metadata = (try? c.decode([String: String].self, forKey: .metadata)) ?? [:]
+        processingDiagnostics = try c.decodeIfPresent(ProcessingDiagnostics.self, forKey: .processingDiagnostics)
         meetingBrief = try c.decodeIfPresent(MeetingBrief.self, forKey: .meetingBrief)
     }
 
@@ -110,6 +175,7 @@ struct Source: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(transcriptStatus, forKey: .transcriptStatus); try c.encodeIfPresent(durationMs, forKey: .durationMs)
         try c.encodeIfPresent(audioMimeType, forKey: .audioMimeType); try c.encodeIfPresent(consentMode, forKey: .consentMode)
         try c.encodeIfPresent(recordingSessionId, forKey: .recordingSessionId); try c.encode(metadata, forKey: .metadata)
+        try c.encodeIfPresent(processingDiagnostics, forKey: .processingDiagnostics)
         try c.encodeIfPresent(meetingBrief, forKey: .meetingBrief)
     }
 }

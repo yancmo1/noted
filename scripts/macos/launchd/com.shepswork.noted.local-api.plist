@@ -6,14 +6,36 @@
 	<string>com.shepswork.noted.local-api</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/yancyshepherd/Projects/noted/scripts/macos/start-local-noted-api.sh</string>
+		<string>/opt/homebrew/bin/node</string>
+		<string>--env-file-if-exists=/Users/yancyshepherd/Library/CloudStorage/GoogleDrive-yancmo@gmail.com/My Drive/00 - Coding Projects/noted/.env</string>
+		<string>--import</string>
+		<string>/Users/yancyshepherd/Library/CloudStorage/GoogleDrive-yancmo@gmail.com/My Drive/00 - Coding Projects/noted/node_modules/tsx/dist/loader.mjs</string>
+		<string>/Users/yancyshepherd/Library/CloudStorage/GoogleDrive-yancmo@gmail.com/My Drive/00 - Coding Projects/noted/apps/api/src/server.ts</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>/Users/yancyshepherd/Projects/noted</string>
+	<string>/Users/yancyshepherd/Library/CloudStorage/GoogleDrive-yancmo@gmail.com/My Drive/00 - Coding Projects/noted</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>TRANSCRIPTION_PROVIDER</key>
+		<string>local-whisper</string>
+		<key>TRANSCRIPTION_MODE</key>
+		<string>real</string>
+		<key>LLM_MODE</key>
+		<string>real</string>
+		<key>LLM_BASE_URL</key>
+		<string>http://127.0.0.1:11434/v1</string>
+		<key>LLM_API_KEY</key>
+		<string>ollama</string>
+		<key>LLM_MODEL</key>
+		<string>qwen3:8b</string>
+		<key>LLM_REASONING_EFFORT</key>
+		<string>none</string>
+		<key>LLM_ANALYSIS_CHUNK_CHARS</key>
+		<string>2400</string>
+		<key>LLM_ANALYSIS_TIMEOUT_MS</key>
+		<string>120000</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
