@@ -56,6 +56,7 @@ final class LocalRecordingStore {
             }
             return migrated
         }
+        let migrationChangedMetadata = recordings != values
 
         let normalized = normalizeDuplicates(recordings)
         if normalized.count != recordings.count {
@@ -63,6 +64,7 @@ final class LocalRecordingStore {
             try? save(recordings)
         } else {
             recordings = normalized
+            if migrationChangedMetadata { try? save(recordings) }
         }
 
         let deletedIDs = deletedRecordingIDs()
@@ -273,7 +275,13 @@ final class LocalRecordingStore {
             lastError: nil,
             consentMode: "private_thought",
             consentAcknowledged: true,
-            finalizedAt: manifest.endedAt
+            finalizedAt: manifest.endedAt,
+            meetingID: manifest.meetingID ?? manifest.sourceID,
+            device: .appleWatch,
+            sourceStartedAt: manifest.startedAt,
+            sourceEndedAt: manifest.endedAt,
+            sourceTransferState: .acknowledged,
+            synchronizationQuality: .unknown
         )
     }
 

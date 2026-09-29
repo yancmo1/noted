@@ -117,8 +117,8 @@ final class APIClient {
         let requestBody = DirectUploadRequest(
             title: recording.title,
             clientRecordingId: recording.id.uuidString,
-            startedAt: ISO8601DateFormatter().string(from: recording.createdAt),
-            endedAt: ISO8601DateFormatter().string(from: recording.createdAt.addingTimeInterval(recording.duration)),
+            startedAt: ISO8601DateFormatter().string(from: recording.sourceStartedAt),
+            endedAt: ISO8601DateFormatter().string(from: recording.sourceEndDate),
             durationMs: Int(recording.duration * 1000),
             mimeType: mimeType,
             consentMode: recording.consentMode,
@@ -148,8 +148,8 @@ final class APIClient {
         func field(_ name: String, _ value: String) throws { try write("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n") }
         try field("title", recording.title)
         try field("durationMs", String(Int(recording.duration * 1000)))
-        try field("startedAt", ISO8601DateFormatter().string(from: recording.createdAt))
-        try field("endedAt", ISO8601DateFormatter().string(from: recording.createdAt.addingTimeInterval(recording.duration)))
+        try field("startedAt", ISO8601DateFormatter().string(from: recording.sourceStartedAt))
+        try field("endedAt", ISO8601DateFormatter().string(from: recording.sourceEndDate))
         try field("consentMode", recording.consentMode)
         try field("consentAcknowledged", "true")
         try field("client", "native")

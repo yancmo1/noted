@@ -8,6 +8,9 @@ struct NotedWatchSpikeApp: App {
         WindowGroup {
             WatchSpikeView()
                 .environmentObject(recorder)
+                .onOpenURL { url in
+                    recorder.handleDeepLink(url)
+                }
         }
     }
 }
@@ -36,6 +39,26 @@ struct WatchSpikeView: View {
                     }
                     .tint(.red)
                     .buttonStyle(.bordered)
+                } else if recorder.isComplicationReadyToRecord {
+                    Text("Ready to record")
+                        .font(.headline)
+                    Text("The Noted complication opened this screen. Tap Start to begin the Watch recording.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button {
+                        Task { await recorder.startFromComplication() }
+                    } label: {
+                        Label("Start recording", systemImage: "record.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .tint(.red)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("complication-start-recording")
+                    Button("Choose audio profile") {
+                        recorder.dismissComplicationRoute()
+                    }
+                    .font(.footnote)
                 } else {
                     Text("Noted Spike")
                         .font(.headline)

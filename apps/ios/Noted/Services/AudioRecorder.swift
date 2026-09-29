@@ -12,6 +12,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var activeFileURL: URL?
     @Published private(set) var interruptionMessage: String?
+    @Published private(set) var activeMeetingID: UUID?
 
     private let store: LocalRecordingStore
     private var recorder: AVAudioRecorder?
@@ -47,7 +48,12 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         NotificationCenter.default.removeObserver(self)
     }
 
-    func start(title: String = "Untitled Recording", consentMode: String = "private_thought", consentAcknowledged: Bool = true) async throws {
+    func start(
+        title: String = "Untitled Recording",
+        meetingID: UUID? = nil,
+        consentMode: String = "private_thought",
+        consentAcknowledged: Bool = true
+    ) async throws {
         guard state == .idle, !isStarting, !isFinishing else { return }
         isStarting = true
         defer { isStarting = false }
@@ -63,6 +69,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
 
         let id = UUID()
+        let captureMeetingID = meetingID ?? id
         let url = store.newAudioURL(for: id)
         let createdAt = Date()
         let draft = LocalRecording(
@@ -78,7 +85,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             bookmarks: [],
             lastError: nil,
             consentMode: consentMode,
-            consentAcknowledged: consentAcknowledged
+            consentAcknowledged: consentAcknowledged,
+            meetingID: captureMeetingID,
+            device: .iPhone,
+            sourceStartedAt: createdAt
         )
 
         var recordings = store.load()
@@ -86,7 +96,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         recordings.append(draft)
         try store.save(recordings)
 
-        AudioSessionCoordinator.shared.beginRecording()
+        await AudioSessionCoordinator.shared.beginRecording()
         var sessionClaimed = true
         let session = AVAudioSession.sharedInstance()
         let settings: [String: Any] = [
@@ -98,7 +108,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         ]
         do {
             try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.allowBluetoothHFP, .defaultToSpeaker])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try await AudioSessionActivation.activate(session, options: .notifyOthersOnDeactivation)
             let recorder = try AVAudioRecorder(url: url, settings: settings)
             recorder.delegate = self
             guard recorder.prepareToRecord(), recorder.record() else {
@@ -107,6 +117,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self.recorder = recorder
             activeFileURL = url
             activeRecordingID = id
+            activeMeetingID = captureMeetingID
             sessionStartedAt = createdAt
             elapsedAnchor = createdAt
             accumulatedDuration = 0
@@ -118,6 +129,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             startTicker()
         } catch {
             if sessionClaimed {
+                try? await AudioSessionActivation.deactivate(session, options: .notifyOthersOnDeactivation)
                 AudioSessionCoordinator.shared.endRecording()
                 sessionClaimed = false
             }
@@ -140,10 +152,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         checkpointDraft(state: .paused)
     }
 
-    func resume() {
+    func resume() async {
         guard state == .paused || state == .interrupted else { return }
         do {
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            try await AudioSessionActivation.activate(
+                AVAudioSession.sharedInstance(),
+                options: .notifyOthersOnDeactivation
+            )
         } catch {
             interruptionMessage = "The microphone is still unavailable. Try Resume again when it is ready."
             return
@@ -170,7 +185,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard let self, self.isFinishing else { return }
-                self.completeFinalization(error: "The recorder did not finish closing cleanly. The saved audio needs repair.")
+                await self.completeFinalization(error: "The recorder did not finish closing cleanly. The saved audio needs repair.")
             }
         }
     }
@@ -208,7 +223,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         try? store.save(recordings)
     }
 
-    private func finalizeCurrentRecording(error: String?) -> LocalRecording? {
+    private func finalizeCurrentRecording(error: String?) async -> LocalRecording? {
         guard let id = activeRecordingID, let url = activeFileURL else { return nil }
         ticker?.cancel()
         let validation = try? LocalAudioValidator.validate(url: url)
@@ -229,11 +244,16 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             bookmarks: [],
             lastError: error,
             consentMode: "private_thought",
-            consentAcknowledged: true
+            consentAcknowledged: true,
+            meetingID: activeMeetingID ?? id,
+            device: .iPhone,
+            sourceStartedAt: sessionStartedAt ?? Date()
         )
         result.localFileURL = url
         result.fileName = url.lastPathComponent
-        result.finalizedAt = Date()
+        let finalizedAt = Date()
+        result.finalizedAt = finalizedAt
+        result.sourceEndedAt = finalizedAt
         result.duration = duration
         result.state = validation == nil ? .needsRepair : .localOnly
         result.byteSize = validation?.byteSize ?? store.byteSize(of: url)
@@ -248,6 +268,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         recorder = nil
         activeFileURL = nil
         activeRecordingID = nil
+        activeMeetingID = nil
         sessionStartedAt = nil
         elapsedAnchor = nil
         elapsed = 0
@@ -255,13 +276,16 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         state = .idle
         isFinishing = false
         isSaving = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        try? await AudioSessionActivation.deactivate(
+            AVAudioSession.sharedInstance(),
+            options: .notifyOthersOnDeactivation
+        )
         AudioSessionCoordinator.shared.endRecording()
         return result
     }
 
-    private func completeFinalization(error: String?) {
-        let result = finalizeCurrentRecording(error: error)
+    private func completeFinalization(error: String?) async {
+        let result = await finalizeCurrentRecording(error: error)
         let continuation = stopContinuation
         stopContinuation = nil
         continuation?.resume(returning: result)
@@ -312,8 +336,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         isSaving = false
         state = .idle
         interruptionMessage = "No audio was captured before the interruption. You can start again."
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        AudioSessionCoordinator.shared.endRecording()
+        Task { @MainActor in
+            try? await AudioSessionActivation.deactivate(
+                AVAudioSession.sharedInstance(),
+                options: .notifyOthersOnDeactivation
+            )
+            AudioSessionCoordinator.shared.endRecording()
+        }
     }
 
     @objc private func handleRouteChange(_ notification: Notification) {
@@ -330,18 +359,18 @@ final class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         Task { @MainActor [weak self] in
             guard let self, self.recorder != nil else { return }
             if self.isFinishing {
-                self.completeFinalization(error: flag ? nil : "The recorder stopped before the recording was complete.")
+                await self.completeFinalization(error: flag ? nil : "The recorder stopped before the recording was complete.")
                 return
             }
             let error = flag ? nil : "The recorder stopped before the recording was complete."
-            _ = self.finalizeCurrentRecording(error: error)
+            _ = await self.finalizeCurrentRecording(error: error)
         }
     }
 
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.completeFinalization(error: error?.localizedDescription ?? "The audio file could not be finalized.")
+            await self.completeFinalization(error: error?.localizedDescription ?? "The audio file could not be finalized.")
         }
     }
 }

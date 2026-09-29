@@ -78,6 +78,9 @@ targets:
       - path: WatchRecorder/AppIcon108x108@2x.png
       - path: WatchRecorder/AppIcon117x117@2x.png
       - path: WatchRecorder/AppIcon129x129@2x.png
+    dependencies:
+      - target: Noted Watch Complication
+        embed: true
     info:
       path: WatchRecorder/Info.plist
       properties:
@@ -122,6 +125,10 @@ targets:
             CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.shepswork.noted.watch.capture
+            CFBundleURLSchemes:
+              - noted-watch
         ITSAppUsesNonExemptEncryption: false
         NSMicrophoneUsageDescription: Noted uses the Apple Watch microphone to validate reliable meeting capture.
         UIBackgroundModes:
@@ -138,8 +145,38 @@ targets:
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 9PHS626XUN
+        CODE_SIGN_ENTITLEMENTS: WatchRecorder/NotedWatchSpike.entitlements
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 1.0
+  Noted Watch Complication:
+    type: app-extension
+    platform: watchOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: WatchComplication
+      - path: WatchConnectivity/WatchComplicationState.swift
+    frameworks:
+      - WidgetKit
+      - SwiftUI
+    info:
+      path: WatchComplication/Info.plist
+      properties:
+        CFBundleDisplayName: Noted Record
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shepswork.noted.watchkitapp.notedcomplication
+        PRODUCT_NAME: Noted Watch Complication
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        WATCHOS_DEPLOYMENT_TARGET: "11.0"
+        TARGETED_DEVICE_FAMILY: "4"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 9PHS626XUN
+        CODE_SIGN_ENTITLEMENTS: WatchComplication/NotedWatchComplication.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
   ShareExtension:
     type: app-extension
     platform: iOS
@@ -206,7 +243,7 @@ schemes:
       targets:
         Noted: all
         ShareExtension: all
-        Noted Watch Spike: [build]
+        Noted Watch Spike: all
         NotedTests: [test]
         NotedUITests: [test]
     test:
@@ -219,3 +256,7 @@ schemes:
         Noted Watch Spike: all
     run:
       config: Debug
+  Noted Watch Complication:
+    build:
+      targets:
+        Noted Watch Complication: all

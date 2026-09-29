@@ -293,7 +293,7 @@ struct MeetingDetailView: View {
             Text(deletionError ?? "Try again when the server is reachable.")
         }
         .task { await loadAndPoll() }
-        .onDisappear { player.stop() }
+        .onDisappear { Task { await player.stop() } }
         .sheet(isPresented: $isSharingAudio) {
             if let shareableAudioURL {
                 AudioShareSheet(fileURL: shareableAudioURL) { completed, error in
@@ -458,7 +458,7 @@ struct MeetingDetailView: View {
                     .foregroundStyle(audioError == nil && player.errorMessage == nil ? Color.secondary : Color.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button { _ = player.toggle() } label: {
+            Button { Task { _ = await player.toggle() } } label: {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 56))
             }
@@ -630,10 +630,10 @@ struct MeetingDetailView: View {
         await loadBundle()
         do {
             if let localURL, model.localStore.byteSize(of: localURL) > 0 {
-                try player.load(url: localURL)
+                try await player.load(url: localURL)
             } else if let id = sourceID {
                 let temporary = try await model.api.downloadAudio(sourceId: id)
-                try player.load(url: temporary)
+                try await player.load(url: temporary)
             } else {
                 throw AudioPlayerError.fileMissing
             }

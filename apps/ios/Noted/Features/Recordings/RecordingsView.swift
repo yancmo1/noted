@@ -69,14 +69,14 @@ struct RecordingDetailView: View {
         .navigationTitle(recording?.title ?? source?.title ?? "Recording")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .onDisappear { player.stop() }
+        .onDisappear { Task { await player.stop() } }
     }
 
     private var header: some View { VStack(alignment: .leading, spacing: 8) { Text(recording?.title ?? source?.title ?? "Recording").font(.title.bold()); HStack { Image(systemName: "calendar"); Text(recording.map { $0.createdAt.formatted(date: .abbreviated, time: .shortened) } ?? source?.capturedAt ?? ""); if let recording { StatusPill(text: recording.state.title, color: Color.notedPrimary) } else if let source { StatusPill(text: source.processingStatus.rawValue.capitalized, color: Color.notedPrimary) } }.font(.subheadline).foregroundStyle(.secondary) } }
 
-    private var playerCard: some View { VStack(spacing: 14) { HStack { Text(timeLabel(player.currentTime)).monospacedDigit(); Slider(value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }), in: 0...max(player.duration, 1)).disabled(!player.canPlay).accessibilityLabel("Playback position"); Text(timeLabel(player.duration)).monospacedDigit() }.font(.caption); if !player.canPlay { Label(audioError ?? player.errorMessage ?? "Preparing audio…", systemImage: audioError == nil && player.errorMessage == nil ? "hourglass" : "exclamationmark.triangle").font(.footnote).foregroundStyle(audioError == nil && player.errorMessage == nil ? Color.secondary : Color.red).frame(maxWidth: .infinity, alignment: .leading) }; Button { _ = player.toggle() } label: { Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 56)) }.accessibilityLabel(player.isPlaying ? "Pause playback" : "Play recording").accessibilityValue(player.canPlay ? "\(timeLabel(player.currentTime)) of \(timeLabel(player.duration))" : "Audio unavailable").disabled(!player.canPlay); if let recording, !recording.bookmarks.isEmpty { ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(recording.bookmarks) { mark in Button("\(timeLabel(mark.timestamp))") { player.seek(to: mark.timestamp) }.buttonStyle(.bordered) } } } } }.padding().background(Color.notedMemory.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card)) }
+    private var playerCard: some View { VStack(spacing: 14) { HStack { Text(timeLabel(player.currentTime)).monospacedDigit(); Slider(value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }), in: 0...max(player.duration, 1)).disabled(!player.canPlay).accessibilityLabel("Playback position"); Text(timeLabel(player.duration)).monospacedDigit() }.font(.caption); if !player.canPlay { Label(audioError ?? player.errorMessage ?? "Preparing audio…", systemImage: audioError == nil && player.errorMessage == nil ? "hourglass" : "exclamationmark.triangle").font(.footnote).foregroundStyle(audioError == nil && player.errorMessage == nil ? Color.secondary : Color.red).frame(maxWidth: .infinity, alignment: .leading) }; Button { Task { _ = await player.toggle() } } label: { Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 56)) }.accessibilityLabel(player.isPlaying ? "Pause playback" : "Play recording").accessibilityValue(player.canPlay ? "\(timeLabel(player.currentTime)) of \(timeLabel(player.duration))" : "Audio unavailable").disabled(!player.canPlay); if let recording, !recording.bookmarks.isEmpty { ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(recording.bookmarks) { mark in Button("\(timeLabel(mark.timestamp))") { player.seek(to: mark.timestamp) }.buttonStyle(.bordered) } } } } }.padding().background(Color.notedMemory.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card)) }
 
-    private var transcriptSection: some View { VStack(alignment: .leading, spacing: 10) { Text("TRANSCRIPT").font(.caption.bold()).tracking(1.2).foregroundStyle(.secondary); if let segments = bundle?.transcript.segments, !segments.isEmpty { ForEach(segments) { segment in Button { player.seek(to: segment.seekTime); if !player.isPlaying { player.toggle() } } label: { HStack(alignment: .top, spacing: 12) { Text(segment.startMs.map { timeLabel(TimeInterval($0) / 1000) } ?? "—").font(.caption.monospacedDigit()).foregroundStyle(Color.notedPrimary).frame(minWidth: 60, alignment: .leading); Text(segment.text).foregroundStyle(.primary); Spacer() } }.buttonStyle(.plain).padding(.vertical, 4) } } else { Text("Transcript will appear here after upload and processing.").foregroundStyle(.secondary) } }.frame(maxWidth: .infinity, alignment: .leading) }
+    private var transcriptSection: some View { VStack(alignment: .leading, spacing: 10) { Text("TRANSCRIPT").font(.caption.bold()).tracking(1.2).foregroundStyle(.secondary); if let segments = bundle?.transcript.segments, !segments.isEmpty { ForEach(segments) { segment in Button { player.seek(to: segment.seekTime); if !player.isPlaying { Task { _ = await player.toggle() } } } label: { HStack(alignment: .top, spacing: 12) { Text(segment.startMs.map { timeLabel(TimeInterval($0) / 1000) } ?? "—").font(.caption.monospacedDigit()).foregroundStyle(Color.notedPrimary).frame(minWidth: 60, alignment: .leading); Text(segment.text).foregroundStyle(.primary); Spacer() } }.buttonStyle(.plain).padding(.vertical, 4) } } else { Text("Transcript will appear here after upload and processing.").foregroundStyle(.secondary) } }.frame(maxWidth: .infinity, alignment: .leading) }
 
     private var memorySection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -85,7 +85,7 @@ struct RecordingDetailView: View {
                 Card(title: memory.memoryType.capitalized) {
                     Text(memory.content)
                     if let ref = memory.evidenceRefs?.first, let start = ref.startMs {
-                        Button("Evidence · \(timeLabel(TimeInterval(start) / 1000))") { player.seek(to: TimeInterval(start) / 1000); if !player.isPlaying { player.toggle() } }.font(.caption.bold())
+                        Button("Evidence · \(timeLabel(TimeInterval(start) / 1000))") { player.seek(to: TimeInterval(start) / 1000); if !player.isPlaying { Task { _ = await player.toggle() } } }.font(.caption.bold())
                     }
                 }
             }
@@ -100,13 +100,13 @@ struct RecordingDetailView: View {
         if let id = sourceID { bundle = await model.bundle(for: id) }
         do {
             if let localURL, model.localStore.byteSize(of: localURL) > 0 {
-                try player.load(url: localURL)
+                try await player.load(url: localURL)
             } else if let id = sourceID {
                 let temp = try await model.api.downloadAudio(sourceId: id)
                 let local = model.localStore.newAudioURL(for: UUID())
                 try? FileManager.default.removeItem(at: local)
                 try FileManager.default.moveItem(at: temp, to: local)
-                try player.load(url: local)
+                try await player.load(url: local)
             } else {
                 throw AudioPlayerError.fileMissing
             }

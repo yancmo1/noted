@@ -16,6 +16,110 @@ final class NotedTests: XCTestCase {
         XCTAssertEqual(decoded.fileName, "example.m4a")
         XCTAssertEqual(decoded.localFileURL.lastPathComponent, "example.m4a")
         XCTAssertEqual(decoded.state, recording.state)
+        XCTAssertEqual(decoded.meetingID, recording.id)
+        XCTAssertEqual(decoded.device, .iPhone)
+        XCTAssertEqual(decoded.recordingSource.sourceID, recording.id)
+    }
+
+    func testLegacyRecordingMigratesToOneIPhoneSourceInOneMeeting() throws {
+        let id = UUID()
+        let startedAt = Date(timeIntervalSinceReferenceDate: 12_345)
+        let endedAt = startedAt.addingTimeInterval(8)
+        let recording = LocalRecording(
+            id: id,
+            localFileURL: URL(fileURLWithPath: "/tmp/legacy.m4a"),
+            createdAt: startedAt,
+            duration: 8,
+            title: "Legacy meeting",
+            state: .localOnly,
+            uploadAttempts: 0,
+            serverSourceId: nil,
+            byteSize: 12,
+            bookmarks: [],
+            lastError: nil,
+            consentMode: "meeting",
+            consentAcknowledged: true,
+            finalizedAt: endedAt
+        )
+
+        var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(recording)) as? [String: Any])
+        legacyObject["schemaVersion"] = 2
+        for key in ["meetingID", "device", "sourceStartedAt", "sourceEndedAt", "sourceTransferState", "clockOffset", "synchronizationQuality"] {
+            legacyObject.removeValue(forKey: key)
+        }
+        let migrated = try JSONDecoder().decode(LocalRecording.self, from: JSONSerialization.data(withJSONObject: legacyObject))
+
+        XCTAssertEqual(migrated.meetingID, id)
+        XCTAssertEqual(migrated.sourceID, id)
+        XCTAssertEqual(migrated.device, .iPhone)
+        XCTAssertEqual(migrated.sourceStartedAt, startedAt)
+        XCTAssertEqual(migrated.sourceEndedAt, endedAt)
+        XCTAssertEqual(migrated.sourceTransferState, .local)
+
+        let capture = try XCTUnwrap(MeetingCapture.group([migrated]).first)
+        XCTAssertEqual(capture.id, id)
+        XCTAssertEqual(capture.state, .completed)
+        XCTAssertEqual(capture.sources.count, 1)
+        XCTAssertEqual(capture.sources[0].sourceID, id)
+        XCTAssertEqual(capture.sources[0].device, .iPhone)
+        XCTAssertEqual(capture.sources[0].fileName, "legacy.m4a")
+    }
+
+    func testMeetingCaptureKeepsIndependentSourceTracksTogether() throws {
+        let base = Date(timeIntervalSinceReferenceDate: 42_000)
+        let meetingID = UUID()
+        let iPhoneID = UUID()
+        let watchID = UUID()
+        let iPhone = LocalRecording(
+            id: iPhoneID,
+            localFileURL: URL(fileURLWithPath: "/tmp/iphone.m4a"),
+            createdAt: base,
+            duration: 10,
+            title: "Dual meeting",
+            state: .localOnly,
+            uploadAttempts: 0,
+            serverSourceId: nil,
+            byteSize: 10,
+            bookmarks: [],
+            lastError: nil,
+            consentMode: "meeting",
+            consentAcknowledged: true,
+            finalizedAt: base.addingTimeInterval(10),
+            meetingID: meetingID,
+            device: .iPhone,
+            sourceStartedAt: base,
+            sourceEndedAt: base.addingTimeInterval(10)
+        )
+        let watch = LocalRecording(
+            id: watchID,
+            localFileURL: URL(fileURLWithPath: "/tmp/watch.m4a"),
+            createdAt: base.addingTimeInterval(0.2),
+            duration: 9.8,
+            title: "Dual meeting",
+            state: .localOnly,
+            uploadAttempts: 0,
+            serverSourceId: nil,
+            byteSize: 11,
+            bookmarks: [],
+            lastError: nil,
+            consentMode: "meeting",
+            consentAcknowledged: true,
+            finalizedAt: base.addingTimeInterval(10),
+            meetingID: meetingID,
+            device: .appleWatch,
+            sourceStartedAt: base.addingTimeInterval(0.2),
+            sourceEndedAt: base.addingTimeInterval(10),
+            sourceTransferState: .acknowledged,
+            synchronizationQuality: .unknown
+        )
+
+        let capture = try XCTUnwrap(MeetingCapture.group([iPhone, watch]).first)
+
+        XCTAssertEqual(capture.id, meetingID)
+        XCTAssertEqual(capture.state, .completed)
+        XCTAssertEqual(capture.sources.map(\.sourceID), [iPhoneID, watchID])
+        XCTAssertEqual(capture.sources.map(\.device), [.iPhone, .appleWatch])
+        XCTAssertEqual(Set(capture.sources.map(\.fileName)), ["iphone.m4a", "watch.m4a"])
     }
 
     func testStoreRecoversInterruptedDraftAndKeepsMissingMetadataVisible() throws {
@@ -162,6 +266,84 @@ final class NotedTests: XCTestCase {
         let decoded = try WatchCaptureProtocol.acknowledgementStatusRequest(from: WatchCaptureProtocol.acknowledgementStatusRequestUserInfo(for: request))
 
         XCTAssertEqual(decoded, request)
+    }
+
+    func testWatchStartCommandRoundTripsAndCarriesMeetingIdentity() throws {
+        let meetingID = UUID()
+        let request = WatchStartCaptureRequest(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: meetingID,
+            commandID: UUID(),
+            title: "Dual meeting",
+            requestedAt: Date()
+        )
+        let ack = WatchStartCaptureAck(
+            protocolVersion: request.protocolVersion,
+            meetingID: meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            isRecording: true,
+            alreadyHandled: false,
+            sourceID: UUID(),
+            startedAt: request.requestedAt.addingTimeInterval(0.04),
+            error: nil
+        )
+
+        XCTAssertEqual(try WatchCaptureProtocol.startRequest(from: WatchCaptureProtocol.startRequestMessage(for: request)), request)
+        XCTAssertEqual(try WatchCaptureProtocol.startAck(from: WatchCaptureProtocol.startAckMessage(for: ack)), ack)
+    }
+
+    func testWatchStopCommandRoundTripsConfirmationAndCompletion() throws {
+        let request = WatchStopCaptureRequest(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: UUID(),
+            commandID: UUID(),
+            requestedAt: Date()
+        )
+        let pending = WatchStopCaptureAck(
+            protocolVersion: request.protocolVersion,
+            meetingID: request.meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            completed: false,
+            requiresConfirmation: true,
+            sourceID: UUID(),
+            endedAt: nil,
+            error: "Confirm Stop on the Apple Watch to finalize this source."
+        )
+        let completed = WatchStopCaptureAck(
+            protocolVersion: request.protocolVersion,
+            meetingID: request.meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            completed: true,
+            requiresConfirmation: false,
+            sourceID: pending.sourceID,
+            endedAt: request.requestedAt.addingTimeInterval(5),
+            error: nil
+        )
+
+        XCTAssertEqual(try WatchCaptureProtocol.stopRequest(from: WatchCaptureProtocol.stopRequestMessage(for: request)), request)
+        XCTAssertEqual(try WatchCaptureProtocol.stopAck(from: WatchCaptureProtocol.stopAckMessage(for: pending)), pending)
+        XCTAssertEqual(try WatchCaptureProtocol.stopAck(from: WatchCaptureProtocol.stopAckMessage(for: completed)), completed)
+    }
+
+    func testWatchStartAckRejectsAcceptedResponseWithoutSourceIdentity() throws {
+        let acknowledgement = WatchStartCaptureAck(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: UUID(),
+            commandID: UUID(),
+            accepted: true,
+            isRecording: true,
+            alreadyHandled: false,
+            sourceID: nil,
+            startedAt: Date(),
+            error: nil
+        )
+
+        XCTAssertThrowsError(try WatchCaptureProtocol.startAckMessage(for: acknowledgement)) { error in
+            XCTAssertEqual(error as? WatchCaptureProtocolError, .invalidStartAcknowledgement)
+        }
     }
 
     func testWatchTransferChecksumAndByteSizeAreStable() throws {

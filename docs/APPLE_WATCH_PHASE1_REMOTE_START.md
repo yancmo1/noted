@@ -7,6 +7,8 @@ Status: **PENDING REAL-DEVICE TEST**
 - The installed watchOS SDK exposes the public `AudioRecordingIntent` protocol.
 - Apple documents that adopting `AudioRecordingIntent` on watchOS requires an active Live Activity for the duration of recording; otherwise the recording stops.
 - The current spike intentionally does not adopt that protocol. It has no iPhone recording intent, Live Activity, or claim that a Watch action can activate a locked/backgrounded iPhone microphone.
+- The current Watch target now includes a WidgetKit complication. Its tap opens `noted-watch://capture` and presents a dedicated foreground Start screen. The complication reads a shared app-group snapshot for recorder state, while the visible Start button remains the microphone authorization boundary.
+- The iPhone Record screen now offers an iPhone-first dual capture toggle. It starts the iPhone source locally, sends a reachable-only idempotent Watch start request with a shared `meetingID`, and reports partial success without invalidating the iPhone source. Stop requests preserve the Watch confirmation prompt and report the later completion acknowledgement.
 - Simulator launch and WatchConnectivity message behavior would not prove the locked-phone privacy path.
 
 ## Required physical experiment

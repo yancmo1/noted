@@ -18,6 +18,7 @@ fi
 
 ios_app="$archive_path/Products/Applications/Noted.app"
 watch_app="$ios_app/Watch/Noted Watch Spike.app"
+complication="$watch_app/PlugIns/Noted Watch Complication.appex"
 
 if [[ ! -d "$ios_app" ]]; then
   echo "error: Cloud archive does not contain Noted.app at $ios_app" >&2
@@ -26,6 +27,11 @@ fi
 
 if [[ ! -d "$watch_app" ]]; then
   echo "error: Cloud archive does not contain the embedded Noted Watch Spike.app" >&2
+  exit 1
+fi
+
+if [[ ! -d "$complication" ]]; then
+  echo "error: Cloud archive does not contain the embedded Noted Watch Complication.appex" >&2
   exit 1
 fi
 
@@ -45,4 +51,5 @@ if [[ "$ios_build_number" != "$watch_build_number" ]]; then
 fi
 
 echo "Xcode Cloud archive validation passed: Noted.app contains Noted Watch Spike.app."
+echo "Xcode Cloud archive validation passed: Noted Watch Spike.app contains Noted Watch Complication.appex."
 echo "Xcode Cloud archive validation passed: iPhone and Watch marketing/build versions match ($ios_marketing_version/$ios_build_number)."

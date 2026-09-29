@@ -10,6 +10,7 @@ struct WatchTransferIngestResult: Equatable {
 
 extension Notification.Name {
     static let notedWatchTransferReceived = Notification.Name("noted.watchTransferReceived")
+    static let notedWatchStopAcknowledgementReceived = Notification.Name("noted.watchStopAcknowledgementReceived")
 }
 
 final class WatchTransferStore {
@@ -179,6 +180,48 @@ final class WatchTransferReceiver: NSObject, WCSessionDelegate, @unchecked Senda
         store.pendingTransfers()
     }
 
+    var isSupported: Bool { WCSession.isSupported() }
+
+    var isReachable: Bool {
+        guard isSupported else { return false }
+        let session = WCSession.default
+        return session.activationState == .activated && session.isReachable
+    }
+
+    func requestWatchStart(meetingID: UUID, title: String, commandID: UUID = UUID()) async throws -> WatchStartCaptureAck {
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = WatchStartCaptureRequest(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: meetingID,
+            commandID: commandID,
+            title: normalizedTitle.isEmpty ? "Untitled Meeting" : normalizedTitle,
+            requestedAt: Date()
+        )
+        let message = try WatchCaptureProtocol.startRequestMessage(for: request)
+        return try await sendCommand(message) { reply in
+            if let error = WatchCaptureProtocol.commandError(from: reply) {
+                throw WatchConnectivityCommandError.remote(error)
+            }
+            return try WatchCaptureProtocol.startAck(from: reply)
+        }
+    }
+
+    func requestWatchStop(meetingID: UUID, commandID: UUID = UUID()) async throws -> WatchStopCaptureAck {
+        let request = WatchStopCaptureRequest(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: meetingID,
+            commandID: commandID,
+            requestedAt: Date()
+        )
+        let message = try WatchCaptureProtocol.stopRequestMessage(for: request)
+        return try await sendCommand(message) { reply in
+            if let error = WatchCaptureProtocol.commandError(from: reply) {
+                throw WatchConnectivityCommandError.remote(error)
+            }
+            return try WatchCaptureProtocol.stopAck(from: reply)
+        }
+    }
+
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         if let error {
             logger.error("Activation failed: \(error.localizedDescription, privacy: .public)")
@@ -217,6 +260,10 @@ final class WatchTransferReceiver: NSObject, WCSessionDelegate, @unchecked Senda
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        if let stopAcknowledgement = try? WatchCaptureProtocol.stopAck(from: userInfo) {
+            NotificationCenter.default.post(name: .notedWatchStopAcknowledgementReceived, object: stopAcknowledgement)
+            return
+        }
         do {
             let request = try WatchCaptureProtocol.acknowledgementStatusRequest(from: userInfo)
             guard let ack = try store.durableAcknowledgement(for: request) else {
@@ -229,6 +276,55 @@ final class WatchTransferReceiver: NSObject, WCSessionDelegate, @unchecked Senda
             logger.error("Invalid Watch acknowledgement status request")
         } catch {
             logger.error("Could not reconcile Watch acknowledgement status: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        guard let stopAcknowledgement = try? WatchCaptureProtocol.stopAck(from: message) else { return }
+        NotificationCenter.default.post(name: .notedWatchStopAcknowledgementReceived, object: stopAcknowledgement)
+    }
+
+    private func sendCommand<T: Sendable>(
+        _ message: [String: Any],
+        decode: @escaping ([String: Any]) throws -> T
+    ) async throws -> T {
+        guard isSupported else { throw WatchConnectivityCommandError.unsupported }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isReachable else {
+            throw WatchConnectivityCommandError.notReachable
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            session.sendMessage(
+                message,
+                replyHandler: { reply in
+                    do {
+                        continuation.resume(returning: try decode(reply))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                },
+                errorHandler: { error in
+                    continuation.resume(throwing: error)
+                }
+            )
+        }
+    }
+}
+
+enum WatchConnectivityCommandError: LocalizedError {
+    case unsupported
+    case notReachable
+    case remote(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported:
+            "Apple Watch capture is not supported on this device."
+        case .notReachable:
+            "The Apple Watch is not reachable right now. The iPhone recording continues locally."
+        case .remote(let message):
+            message
         }
     }
 }

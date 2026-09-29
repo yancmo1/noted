@@ -1,6 +1,23 @@
 import Foundation
 import Combine
 
+enum WatchCaptureStatus: Equatable {
+    case idle
+    case starting(meetingID: UUID)
+    case recording(meetingID: UUID, sourceID: UUID)
+    case unavailable(meetingID: UUID, message: String)
+    case stopNeedsConfirmation(meetingID: UUID)
+    case stopped(meetingID: UUID)
+    case failed(meetingID: UUID, message: String)
+
+    var meetingID: UUID? {
+        switch self {
+        case .idle: nil
+        case .starting(let meetingID), .recording(let meetingID, _), .unavailable(let meetingID, _), .stopNeedsConfirmation(let meetingID), .stopped(let meetingID), .failed(let meetingID, _): meetingID
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     let api: APIClient
@@ -19,9 +36,17 @@ final class AppModel: ObservableObject {
     @Published var password = ""
     @Published var isLoggingIn = false
     @Published var isRestoringSession = false
+    @Published private(set) var watchCaptureStatus: WatchCaptureStatus = .idle
+
+    var meetingCaptures: [MeetingCapture] {
+        MeetingCapture.group(localRecordings)
+    }
 
     private var pendingShareUploadIDs = Set<UUID>()
     private var watchTransferObserver: NSObjectProtocol?
+    private var watchStopAcknowledgementObserver: NSObjectProtocol?
+
+    var watchCaptureSupported: Bool { WatchTransferReceiver.shared.isSupported }
 
     init() {
         let baseString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "http://127.0.0.1:3333"
@@ -39,6 +64,16 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.importWatchRecordings()
+            }
+        }
+        watchStopAcknowledgementObserver = NotificationCenter.default.addObserver(
+            forName: .notedWatchStopAcknowledgementReceived,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let acknowledgement = notification.object as? WatchStopCaptureAck else { return }
+            Task { @MainActor [weak self] in
+                self?.applyWatchStopAcknowledgement(acknowledgement)
             }
         }
     }
@@ -189,6 +224,122 @@ final class AppModel: ObservableObject {
         }
         localRecordings = current.sorted { $0.createdAt > $1.createdAt }
         try? localStore.save(localRecordings)
+    }
+
+    func startCapture(
+        title: String,
+        consentMode: String,
+        alsoRecordOnWatch: Bool
+    ) async throws {
+        let meetingID = UUID()
+        watchCaptureStatus = alsoRecordOnWatch ? .starting(meetingID: meetingID) : .idle
+
+        do {
+            try await audioRecorder.start(
+                title: title,
+                meetingID: meetingID,
+                consentMode: consentMode,
+                consentAcknowledged: true
+            )
+        } catch {
+            watchCaptureStatus = .idle
+            throw error
+        }
+
+        guard alsoRecordOnWatch else { return }
+        guard WatchTransferReceiver.shared.isReachable else {
+            watchCaptureStatus = .unavailable(
+                meetingID: meetingID,
+                message: "Apple Watch is not reachable. The iPhone recording continues locally."
+            )
+            return
+        }
+
+        do {
+            let acknowledgement = try await WatchTransferReceiver.shared.requestWatchStart(
+                meetingID: meetingID,
+                title: title.isEmpty ? "Untitled Meeting" : title
+            )
+            guard acknowledgement.accepted,
+                  acknowledgement.isRecording,
+                  let sourceID = acknowledgement.sourceID else {
+                watchCaptureStatus = .failed(
+                    meetingID: meetingID,
+                    message: acknowledgement.error ?? "The Apple Watch did not confirm recording. The iPhone recording continues locally."
+                )
+                return
+            }
+            watchCaptureStatus = .recording(meetingID: meetingID, sourceID: sourceID)
+        } catch WatchConnectivityCommandError.notReachable {
+            watchCaptureStatus = .unavailable(
+                meetingID: meetingID,
+                message: "Apple Watch became unreachable. The iPhone recording continues locally."
+            )
+        } catch {
+            watchCaptureStatus = .failed(
+                meetingID: meetingID,
+                message: "Apple Watch did not start. The iPhone recording continues locally."
+            )
+        }
+    }
+
+    @discardableResult
+    func stopCapture(title: String, consentMode: String, moments: [TimeInterval]) async -> LocalRecording? {
+        let watchStatus = watchCaptureStatus
+        let watchMeetingID: UUID?
+        let shouldRequestWatchStop: Bool
+        switch watchStatus {
+        case .starting(let meetingID), .recording(let meetingID, _), .unavailable(let meetingID, _), .failed(let meetingID, _):
+            watchMeetingID = meetingID
+            shouldRequestWatchStop = true
+        default:
+            watchMeetingID = nil
+            shouldRequestWatchStop = false
+        }
+
+        guard let finished = await audioRecorder.stop() else { return nil }
+        var saved = finished
+        saved.title = title.isEmpty ? "Untitled Recording" : title
+        saved.consentMode = consentMode
+        saved.bookmarks = moments.map { LocalBookmark(id: UUID(), timestamp: $0, createdAt: Date()) }
+        saveFinishedRecording(saved)
+
+        guard shouldRequestWatchStop, let watchMeetingID else { return saved }
+        do {
+            let acknowledgement = try await WatchTransferReceiver.shared.requestWatchStop(meetingID: watchMeetingID)
+            applyWatchStopAcknowledgement(acknowledgement)
+        } catch WatchConnectivityCommandError.notReachable {
+            watchCaptureStatus = .unavailable(
+                meetingID: watchMeetingID,
+                message: "The iPhone recording is saved. Apple Watch stop is unresolved until it reconnects."
+            )
+        } catch {
+            watchCaptureStatus = .failed(
+                meetingID: watchMeetingID,
+                message: "The iPhone recording is saved. Apple Watch stop still needs attention."
+            )
+        }
+        return saved
+    }
+
+    private func applyWatchStopAcknowledgement(_ acknowledgement: WatchStopCaptureAck) {
+        guard acknowledgement.accepted else {
+            watchCaptureStatus = .failed(
+                meetingID: acknowledgement.meetingID,
+                message: acknowledgement.error ?? "Apple Watch did not accept the stop request."
+            )
+            return
+        }
+        if acknowledgement.completed {
+            watchCaptureStatus = .stopped(meetingID: acknowledgement.meetingID)
+        } else if acknowledgement.requiresConfirmation {
+            watchCaptureStatus = .stopNeedsConfirmation(meetingID: acknowledgement.meetingID)
+        } else {
+            watchCaptureStatus = .failed(
+                meetingID: acknowledgement.meetingID,
+                message: acknowledgement.error ?? "Apple Watch stop remains unresolved."
+            )
+        }
     }
 
     func uploadRecording(id: UUID) async throws {

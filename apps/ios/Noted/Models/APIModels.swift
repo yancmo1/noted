@@ -244,8 +244,117 @@ struct LocalBookmark: Codable, Identifiable, Hashable {
     let createdAt: Date
 }
 
+enum CaptureDevice: String, Codable, Hashable {
+    case iPhone
+    case appleWatch
+
+    var displayName: String {
+        switch self {
+        case .iPhone: "iPhone"
+        case .appleWatch: "Apple Watch"
+        }
+    }
+}
+
+enum CaptureSourceLifecycleState: String, Codable, Hashable {
+    case preparing
+    case recording
+    case paused
+    case interrupted
+    case finalized
+    case recovering
+    case failed
+}
+
+enum CaptureTransferState: String, Codable, Hashable {
+    case local
+    case queued
+    case transferring
+    case awaitingDurableAcknowledgement
+    case acknowledged
+    case failed
+}
+
+enum CaptureSynchronizationQuality: String, Codable, Hashable {
+    case unknown
+    case estimated
+    case confirmed
+}
+
+enum CaptureMeetingState: String, Codable, Hashable {
+    case preparing
+    case recording
+    case recovering
+    case completed
+    case partial
+    case failed
+}
+
+struct RecordingSource: Codable, Identifiable, Hashable {
+    let sourceID: UUID
+    var device: CaptureDevice
+    var fileName: String
+    var startedAt: Date
+    var endedAt: Date?
+    var duration: TimeInterval
+    var lifecycleState: CaptureSourceLifecycleState
+    var transferState: CaptureTransferState
+    var clockOffset: TimeInterval?
+    var synchronizationQuality: CaptureSynchronizationQuality
+
+    var id: UUID { sourceID }
+}
+
+struct MeetingCapture: Codable, Identifiable, Hashable {
+    let id: UUID
+    var title: String
+    var createdAt: Date
+    var sources: [RecordingSource]
+
+    init(id: UUID, title: String, createdAt: Date, sources: [RecordingSource]) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.sources = sources.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    var state: CaptureMeetingState { Self.derivedState(for: sources) }
+
+    /// Builds the meeting view from the durable source records. The source records remain
+    /// the single persisted authority, so this grouping cannot drift from local audio state.
+    static func group(_ recordings: [LocalRecording]) -> [MeetingCapture] {
+        Dictionary(grouping: recordings, by: \.meetingID)
+            .values
+            .compactMap { group in
+                guard let first = group.min(by: { $0.sourceStartedAt < $1.sourceStartedAt }) else { return nil }
+                return MeetingCapture(
+                    id: first.meetingID,
+                    title: first.title.isEmpty ? "Untitled Meeting" : first.title,
+                    createdAt: first.sourceStartedAt,
+                    sources: group.map(\.recordingSource)
+                )
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private static func derivedState(for sources: [RecordingSource]) -> CaptureMeetingState {
+        guard !sources.isEmpty else { return .preparing }
+        if sources.contains(where: { $0.lifecycleState == .recording || $0.lifecycleState == .paused }) {
+            return .recording
+        }
+
+        let failed = sources.filter { $0.lifecycleState == .failed }.count
+        let finalized = sources.filter { $0.lifecycleState == .finalized }.count
+        if failed > 0 { return finalized > 0 ? .partial : .failed }
+        if sources.contains(where: { $0.lifecycleState == .recovering || $0.lifecycleState == .interrupted }) {
+            return .recovering
+        }
+        return finalized == sources.count ? .completed : .preparing
+    }
+}
+
 struct LocalRecording: Codable, Identifiable, Hashable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let id: UUID
     var localFileURL: URL
@@ -263,11 +372,19 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var consentMode: String
     var consentAcknowledged: Bool
     var nextRetryAt: Date?
+    var meetingID: UUID
+    var device: CaptureDevice
+    var sourceStartedAt: Date
+    var sourceEndedAt: Date?
+    var sourceTransferState: CaptureTransferState
+    var clockOffset: TimeInterval?
+    var synchronizationQuality: CaptureSynchronizationQuality
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion, id, fileName, legacyLocalFileURL = "localFileURL", createdAt, finalizedAt, duration, title, state
         case uploadAttempts, nextRetryAt, serverSourceId, byteSize, bookmarks, lastError, consentMode
         case consentAcknowledgedKey = "consentAcknowledged"
+        case meetingID, device, sourceStartedAt, sourceEndedAt, sourceTransferState, clockOffset, synchronizationQuality
     }
 
     init(
@@ -285,7 +402,14 @@ struct LocalRecording: Codable, Identifiable, Hashable {
         consentMode: String,
         consentAcknowledged: Bool = false,
         finalizedAt: Date? = nil,
-        nextRetryAt: Date? = nil
+        nextRetryAt: Date? = nil,
+        meetingID: UUID? = nil,
+        device: CaptureDevice = .iPhone,
+        sourceStartedAt: Date? = nil,
+        sourceEndedAt: Date? = nil,
+        sourceTransferState: CaptureTransferState = .local,
+        clockOffset: TimeInterval? = nil,
+        synchronizationQuality: CaptureSynchronizationQuality = .unknown
     ) {
         self.id = id
         self.localFileURL = localFileURL
@@ -303,6 +427,13 @@ struct LocalRecording: Codable, Identifiable, Hashable {
         self.consentMode = consentMode
         self.consentAcknowledged = consentAcknowledged
         self.nextRetryAt = nextRetryAt
+        self.meetingID = meetingID ?? id
+        self.device = device
+        self.sourceStartedAt = sourceStartedAt ?? createdAt
+        self.sourceEndedAt = sourceEndedAt ?? finalizedAt
+        self.sourceTransferState = sourceTransferState
+        self.clockOffset = clockOffset
+        self.synchronizationQuality = synchronizationQuality
     }
 
     init(from decoder: Decoder) throws {
@@ -327,6 +458,15 @@ struct LocalRecording: Codable, Identifiable, Hashable {
         let decodedConsent: Swift.Bool? = try? container.decodeIfPresent(Swift.Bool.self, forKey: consentKey)
         consentAcknowledged = decodedConsent ?? (consentMode == "private_thought")
         nextRetryAt = try container.decodeIfPresent(Date.self, forKey: .nextRetryAt)
+        meetingID = try container.decodeIfPresent(UUID.self, forKey: .meetingID) ?? id
+        device = try container.decodeIfPresent(CaptureDevice.self, forKey: .device) ?? .iPhone
+        sourceStartedAt = try container.decodeIfPresent(Date.self, forKey: .sourceStartedAt) ?? createdAt
+        sourceEndedAt = try container.decodeIfPresent(Date.self, forKey: .sourceEndedAt)
+            ?? finalizedAt
+            ?? (state.captureLifecycleState == .finalized && duration > 0 ? sourceStartedAt.addingTimeInterval(duration) : nil)
+        sourceTransferState = try container.decodeIfPresent(CaptureTransferState.self, forKey: .sourceTransferState) ?? .local
+        clockOffset = try container.decodeIfPresent(TimeInterval.self, forKey: .clockOffset)
+        synchronizationQuality = try container.decodeIfPresent(CaptureSynchronizationQuality.self, forKey: .synchronizationQuality) ?? .unknown
     }
 
     func encode(to encoder: Encoder) throws {
@@ -347,11 +487,53 @@ struct LocalRecording: Codable, Identifiable, Hashable {
         try container.encodeIfPresent(lastError, forKey: .lastError)
         try container.encode(consentMode, forKey: .consentMode)
         try container.encode(consentAcknowledged, forKey: .consentAcknowledgedKey)
+        try container.encode(meetingID, forKey: .meetingID)
+        try container.encode(device, forKey: .device)
+        try container.encode(sourceStartedAt, forKey: .sourceStartedAt)
+        try container.encodeIfPresent(sourceEndedAt, forKey: .sourceEndedAt)
+        try container.encode(sourceTransferState, forKey: .sourceTransferState)
+        try container.encodeIfPresent(clockOffset, forKey: .clockOffset)
+        try container.encode(synchronizationQuality, forKey: .synchronizationQuality)
+    }
+
+    var sourceID: UUID { id }
+
+    var sourceEndDate: Date {
+        sourceEndedAt ?? sourceStartedAt.addingTimeInterval(max(0, duration))
+    }
+
+    var recordingSource: RecordingSource {
+        RecordingSource(
+            sourceID: sourceID,
+            device: device,
+            fileName: fileName.isEmpty ? localFileURL.lastPathComponent : fileName,
+            startedAt: sourceStartedAt,
+            endedAt: sourceEndedAt,
+            duration: duration,
+            lifecycleState: state.captureLifecycleState,
+            transferState: sourceTransferState,
+            clockOffset: clockOffset,
+            synchronizationQuality: synchronizationQuality
+        )
     }
 
     var durationLabel: String {
         let total = Int(duration.rounded())
         return String(format: "%02d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60)
+    }
+}
+
+private extension LocalRecordingState {
+    var captureLifecycleState: CaptureSourceLifecycleState {
+        switch self {
+        case .draft: .preparing
+        case .recording: .recording
+        case .paused: .paused
+        case .interrupted: .interrupted
+        case .recovering: .recovering
+        case .needsRepair, .missingFile, .failed: .failed
+        case .localOnly, .queued, .uploading, .uploaded, .processing, .ready, .partial: .finalized
+        }
     }
 }
 

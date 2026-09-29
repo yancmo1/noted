@@ -3,6 +3,7 @@ import Combine
 import Foundation
 @preconcurrency import WatchConnectivity
 import WatchKit
+import WidgetKit
 import os
 
 enum WatchAudioProfile: String, CaseIterable, Identifiable, Codable {
@@ -25,6 +26,9 @@ struct WatchSpikeRecord: Codable, Identifiable, Hashable {
     let id: UUID
     let fileName: String
     let createdAt: Date
+    var meetingID: UUID?
+    var startCommandID: UUID?
+    var stopCommandID: UUID?
     var startedAt: Date
     var endedAt: Date?
     var duration: TimeInterval
@@ -46,6 +50,15 @@ struct WatchSpikeRecord: Codable, Identifiable, Hashable {
     var interruptionReason: String?
 }
 
+enum WatchCaptureLaunchRoute: Equatable {
+    case readyToRecord
+}
+
+enum WatchStartOutcome: Equatable {
+    case started(sourceID: UUID, startedAt: Date)
+    case rejected(String)
+}
+
 @MainActor
 final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate, WatchConnectivityCoordinatorDelegate {
     @Published private(set) var isRecording = false
@@ -60,6 +73,11 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     @Published var selectedProfile: WatchAudioProfile = .speech16
     @Published var isStopConfirmationPresented = false
     @Published var isDeleteConfirmationPresented = false
+    @Published private(set) var launchRoute: WatchCaptureLaunchRoute?
+
+    var isComplicationReadyToRecord: Bool {
+        launchRoute == .readyToRecord && !isRecording
+    }
 
     private let logger = Logger(subsystem: "com.shepswork.noted.watchkitapp", category: "WatchRecorder")
     private let fileManager = FileManager.default
@@ -74,6 +92,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     private var marks: [WatchCaptureMark] = []
     private var stoppingForStorage = false
     private var pendingDeletionID: UUID?
+    private var pendingStopCommandID: UUID?
 
     private let storageWarningBytes: Int64 = 256 * 1024 * 1024
     private let storageCriticalBytes: Int64 = 16 * 1024 * 1024
@@ -105,6 +124,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         recoverOrphanedAudioFiles()
         recoverInterruptedRecord()
         reconcilePersistedFiles()
+        publishComplicationState()
     }
 
     deinit {
@@ -112,18 +132,19 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         ticker?.cancel()
     }
 
-    func start() async {
-        guard !isRecording else { return }
+    @discardableResult
+    func start(meetingID: UUID? = nil, commandID: UUID? = nil) async -> WatchStartOutcome {
+        guard !isRecording else { return .rejected("A Watch recording is already in progress.") }
         message = nil
         stoppingForStorage = false
         updateResourceWarnings()
         if let available = availableStorageBytes(), available < storageCriticalBytes {
             message = "Not enough Watch storage to start safely. Free space before recording."
-            return
+            return .rejected(message ?? "Not enough Watch storage to start safely.")
         }
         guard await requestMicrophonePermission() else {
             message = "Microphone access is denied. Enable it in Watch Settings to run the spike."
-            return
+            return .rejected(message ?? "Microphone access is denied.")
         }
 
         let id = UUID()
@@ -147,6 +168,9 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 id: id,
                 fileName: fileURL.lastPathComponent,
                 createdAt: startDate,
+                meetingID: meetingID,
+                startCommandID: commandID,
+                stopCommandID: nil,
                 startedAt: startDate,
                 endedAt: nil,
                 duration: 0,
@@ -181,11 +205,13 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 persistRecords(context: "recording started")
             }
             isRecording = true
+            publishComplicationState(reloadWidget: true)
             WKInterfaceDevice.current().play(.start)
             startTicker()
             logger.info("Recording started source=\(id.uuidString, privacy: .public) profile=\(recordingProfile.rawValue, privacy: .public) sessionSampleRate=\(session.sampleRate, privacy: .public)")
+            return .started(sourceID: id, startedAt: startDate)
         } catch {
-            try? session.setActive(false)
+            await deactivateAudioSession(session)
             if let index = records.firstIndex(where: { $0.id == id }) {
                 let size = (try? WatchCaptureProtocol.byteSize(of: fileURL)) ?? 0
                 if size == 0 {
@@ -202,8 +228,167 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 persistRecords(context: "recording start failure")
             }
             message = error.localizedDescription
+            publishComplicationState(reloadWidget: true)
             logger.error("Recording start failed: \(error.localizedDescription, privacy: .public)")
+            return .rejected(error.localizedDescription)
         }
+    }
+
+    func watchConnectivityDidReceiveStartRequest(_ request: WatchStartCaptureRequest) async -> WatchStartCaptureAck {
+        if let existing = records.first(where: { $0.startCommandID == request.commandID }) {
+            return startAcknowledgement(for: request, record: existing, alreadyHandled: true)
+        }
+
+        if let activeID,
+           let active = records.first(where: { $0.id == activeID }) {
+            if active.meetingID == request.meetingID {
+                return startAcknowledgement(for: request, record: active, alreadyHandled: true)
+            }
+            return WatchStartCaptureAck(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: request.meetingID,
+                commandID: request.commandID,
+                accepted: false,
+                isRecording: false,
+                alreadyHandled: false,
+                sourceID: nil,
+                startedAt: nil,
+                error: "A different Watch meeting is already recording."
+            )
+        }
+
+        switch await start(meetingID: request.meetingID, commandID: request.commandID) {
+        case .started(let sourceID, let startedAt):
+            return WatchStartCaptureAck(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: request.meetingID,
+                commandID: request.commandID,
+                accepted: true,
+                isRecording: true,
+                alreadyHandled: false,
+                sourceID: sourceID,
+                startedAt: startedAt,
+                error: nil
+            )
+        case .rejected(let error):
+            return WatchStartCaptureAck(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: request.meetingID,
+                commandID: request.commandID,
+                accepted: false,
+                isRecording: false,
+                alreadyHandled: false,
+                sourceID: nil,
+                startedAt: nil,
+                error: error
+            )
+        }
+    }
+
+    func watchConnectivityDidReceiveStopRequest(_ request: WatchStopCaptureRequest) async -> WatchStopCaptureAck {
+        if let existing = records.first(where: { $0.stopCommandID == request.commandID }) {
+            if existing.endedAt == nil, isRecording, !isStopConfirmationPresented {
+                pendingStopCommandID = request.commandID
+                requestStop()
+            }
+            return stopAcknowledgement(for: request, record: existing)
+        }
+
+        guard let activeID,
+              let index = records.firstIndex(where: { $0.id == activeID }) else {
+            let completed = records.first(where: { $0.meetingID == request.meetingID && $0.endedAt != nil })
+            return WatchStopCaptureAck(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: request.meetingID,
+                commandID: request.commandID,
+                accepted: completed != nil,
+                completed: completed != nil,
+                requiresConfirmation: false,
+                sourceID: completed?.id,
+                endedAt: completed?.endedAt,
+                error: completed == nil ? "No active Watch recording was found for this meeting." : nil
+            )
+        }
+
+        guard records[index].meetingID == request.meetingID else {
+            return WatchStopCaptureAck(
+                protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                meetingID: request.meetingID,
+                commandID: request.commandID,
+                accepted: false,
+                completed: false,
+                requiresConfirmation: false,
+                sourceID: nil,
+                endedAt: nil,
+                error: "The active Watch recording belongs to a different meeting."
+            )
+        }
+
+        records[index].stopCommandID = request.commandID
+        pendingStopCommandID = request.commandID
+        persistRecords(context: "remote stop request")
+        requestStop()
+
+        return WatchStopCaptureAck(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: request.meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            completed: false,
+            requiresConfirmation: true,
+            sourceID: records[index].id,
+            endedAt: nil,
+            error: "Confirm Stop on the Apple Watch to finalize this source."
+        )
+    }
+
+    private func startAcknowledgement(for request: WatchStartCaptureRequest, record: WatchSpikeRecord, alreadyHandled: Bool) -> WatchStartCaptureAck {
+        WatchStartCaptureAck(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: request.meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            isRecording: record.endedAt == nil && record.id == activeID,
+            alreadyHandled: alreadyHandled,
+            sourceID: record.id,
+            startedAt: record.startedAt,
+            error: nil
+        )
+    }
+
+    private func stopAcknowledgement(for request: WatchStopCaptureRequest, record: WatchSpikeRecord) -> WatchStopCaptureAck {
+        WatchStopCaptureAck(
+            protocolVersion: WatchTransferManifest.currentProtocolVersion,
+            meetingID: request.meetingID,
+            commandID: request.commandID,
+            accepted: true,
+            completed: record.endedAt != nil,
+            requiresConfirmation: record.endedAt == nil,
+            sourceID: record.id,
+            endedAt: record.endedAt,
+            error: record.endedAt == nil ? "Confirm Stop on the Apple Watch to finalize this source." : nil
+        )
+    }
+
+    func handleDeepLink(_ url: URL) {
+        guard url.scheme == WatchComplicationLink.scheme,
+              url.host == WatchComplicationLink.captureHost else { return }
+        if isRecording {
+            message = "A Watch recording is already in progress."
+            launchRoute = nil
+        } else {
+            message = nil
+            launchRoute = .readyToRecord
+        }
+    }
+
+    func dismissComplicationRoute() {
+        launchRoute = nil
+    }
+
+    func startFromComplication() async {
+        launchRoute = nil
+        await start()
     }
 
     func mark() {
@@ -228,9 +413,11 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
 
     func cancelStop() {
         isStopConfirmationPresented = false
+        pendingStopCommandID = nil
         guard isRecording,
               let activeID,
               let index = records.firstIndex(where: { $0.id == activeID }) else { return }
+        records[index].stopCommandID = nil
         records[index].lifecycleState = .recording
         persistRecords(context: "stop cancelled")
     }
@@ -315,6 +502,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             }
             self.pendingDeletionID = nil
             message = "Recording deleted from the Watch."
+            publishComplicationState(reloadWidget: true)
             logger.info("Manually deleted Watch recording source=\(record.id.uuidString, privacy: .public)")
         } catch {
             records = previousRecords
@@ -368,6 +556,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             records[index].lifecycleState = .transferFailed
             records[index].error = "WatchConnectivity transfer failed: \(error.localizedDescription)"
             persistRecords(context: "native transfer failure")
+            publishComplicationState(reloadWidget: true)
             message = "The Watch transfer failed. The local audio was retained for retry."
             logger.error("Watch transfer failed source=\(self.records[index].id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return
@@ -377,6 +566,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         records[index].lifecycleState = .awaitingDurableAck
         records[index].error = nil
         persistRecords(context: "native transfer completed")
+        publishComplicationState(reloadWidget: true)
         message = "iPhone received the Watch transfer. Waiting for durable acknowledgement."
         logger.info("Watch transfer delivered source=\(self.records[index].id.uuidString, privacy: .public); awaiting durable acknowledgement")
     }
@@ -397,6 +587,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 records[index].interruptionReason = "AVAudioSession interruption began"
                 persistRecords(context: "audio interruption")
             }
+            publishComplicationState(reloadWidget: true)
             message = "Recording interrupted. Stop to preserve the captured audio."
             logger.error("Recording interrupted source=\(self.activeID?.uuidString ?? "unknown", privacy: .public)")
             return
@@ -462,7 +653,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     }
 
     private func activateAudioSession(_ session: AVAudioSession) async throws {
-        if #available(watchOS 5.0, *) {
+        if #available(watchOS 27.0, *) {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 session.activate(options: []) { activated, error in
                     if let error {
@@ -475,10 +666,32 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 }
             }
         } else {
-            do {
-                try session.setActive(true)
-            } catch {
-                throw WatchSpikeError.audioSessionActivationFailed(error.localizedDescription)
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try session.setActive(true)
+                        continuation.resume(returning: ())
+                    } catch {
+                        continuation.resume(throwing: WatchSpikeError.audioSessionActivationFailed(error.localizedDescription))
+                    }
+                }
+            }
+        }
+    }
+
+    private func deactivateAudioSession(_ session: AVAudioSession) async {
+        if #available(watchOS 27.0, *) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                session.deactivate(options: []) { _, _ in
+                    continuation.resume()
+                }
+            }
+        } else {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    _ = try? session.setActive(false)
+                    continuation.resume()
+                }
             }
         }
     }
@@ -602,6 +815,8 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         let fileURL = recordingsDirectory.appendingPathComponent(record.fileName)
         let endedAt = Date()
         let duration = max(startedAt.map { currentElapsedTime(from: $0) } ?? elapsed, recorder?.currentTime ?? 0)
+        let pendingStopCommandID = self.pendingStopCommandID
+        let meetingID = record.meetingID
         records[index].endedAt = endedAt
         records[index].duration = duration
         records[index].byteSize = byteSize(for: records[index])
@@ -620,12 +835,30 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         self.marks = []
         self.elapsed = 0
         self.isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false)
+        self.pendingStopCommandID = nil
+        await deactivateAudioSession(AVAudioSession.sharedInstance())
+
+        if let pendingStopCommandID {
+            WatchConnectivityCoordinator.shared.sendStopAcknowledgement(
+                WatchStopCaptureAck(
+                    protocolVersion: WatchTransferManifest.currentProtocolVersion,
+                    meetingID: meetingID ?? record.id,
+                    commandID: pendingStopCommandID,
+                    accepted: true,
+                    completed: true,
+                    requiresConfirmation: false,
+                    sourceID: record.id,
+                    endedAt: endedAt,
+                    error: successfully ? nil : records[index].error
+                )
+            )
+        }
 
         guard successfully else {
             records[index].state = .interrupted
             records[index].lifecycleState = .interrupted
             persistRecords(context: "interrupted finalization")
+            publishComplicationState(reloadWidget: true)
             message = records[index].error
             return
         }
@@ -644,6 +877,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             records[index].lifecycleState = .transferFailed
             records[index].error = error.localizedDescription
             persistRecords(context: "transfer setup failure")
+            publishComplicationState(reloadWidget: true)
             message = error.localizedDescription
         }
     }
@@ -654,7 +888,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         guard byteSize > 0 else { throw WatchSpikeError.emptyRecording }
         return WatchTransferManifest(
             protocolVersion: WatchTransferManifest.currentProtocolVersion,
-            meetingID: nil,
+            meetingID: record.meetingID,
             sourceID: record.id,
             sequence: 0,
             fileName: record.fileName,
@@ -680,6 +914,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             try saveRecords()
         }
         try connectivity.queueFile(fileURL: fileURL, metadata: try WatchCaptureProtocol.fileMetadata(for: manifest))
+        publishComplicationState(reloadWidget: true)
     }
 
     private func apply(ack: WatchDurableAck) {
@@ -709,6 +944,7 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
             logger.error("Could not persist durable acknowledgement source=\(ack.sourceID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return
         }
+        publishComplicationState(reloadWidget: true)
         do {
             try fileManager.removeItem(at: fileURL)
         } catch {
@@ -760,6 +996,9 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 id: recoveredID,
                 fileName: fileURL.lastPathComponent,
                 createdAt: createdAt,
+                meetingID: nil,
+                startCommandID: nil,
+                stopCommandID: nil,
                 startedAt: createdAt,
                 endedAt: endedAt,
                 duration: audioDuration(for: fileURL),
@@ -831,6 +1070,31 @@ final class WatchSpikeRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         } catch {
             message = "Watch capture status could not be saved. Audio was retained."
             logger.error("Could not persist Watch records context=\(context, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func publishComplicationState(reloadWidget: Bool = false) {
+        let state: WatchComplicationSnapshot.State
+        let activeNeedsAttention = activeID.flatMap { id in
+            records.first(where: { $0.id == id })
+        }.map { $0.state == .failed || $0.state == .interrupted } ?? false
+        if activeNeedsAttention {
+            state = .attention
+        } else if isRecording {
+            state = .recording
+        } else if records.contains(where: { $0.state == .queued || $0.state == .transferring || $0.state == .awaitingAck }) {
+            state = .transferring
+        } else if records.contains(where: { $0.state == .failed || $0.state == .interrupted }) {
+            state = .attention
+        } else {
+            state = .ready
+        }
+
+        WatchComplicationStateStore.save(
+            WatchComplicationSnapshot(state: state, elapsed: isRecording ? elapsed : 0, updatedAt: Date())
+        )
+        if reloadWidget {
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStateStore.widgetKind)
         }
     }
 

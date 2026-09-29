@@ -7,6 +7,8 @@ protocol WatchConnectivityCoordinatorDelegate: AnyObject {
     func watchConnectivityDidActivate(_ state: WCSessionActivationState, error: Error?)
     func watchConnectivityDidReceive(_ acknowledgement: WatchDurableAck)
     func watchConnectivityDidFinishFileTransfer(fileName: String, error: Error?)
+    func watchConnectivityDidReceiveStartRequest(_ request: WatchStartCaptureRequest) async -> WatchStartCaptureAck
+    func watchConnectivityDidReceiveStopRequest(_ request: WatchStopCaptureRequest) async -> WatchStopCaptureAck
 }
 
 @MainActor
@@ -48,23 +50,75 @@ final class WatchConnectivityCoordinator: NSObject, @preconcurrency WCSessionDel
         WCSession.default.transferUserInfo(userInfo)
     }
 
+    func sendStopAcknowledgement(_ acknowledgement: WatchStopCaptureAck) {
+        guard isSupported else { return }
+        do {
+            let message = try WatchCaptureProtocol.stopAckMessage(for: acknowledgement)
+            let session = WCSession.default
+            if session.activationState == .activated, session.isReachable {
+                session.sendMessage(message, replyHandler: nil) { [logger] error in
+                    logger.error("Could not send Watch stop acknowledgement: \(error.localizedDescription, privacy: .public)")
+                }
+            } else {
+                session.transferUserInfo(message)
+            }
+        } catch {
+            logger.error("Could not encode Watch stop acknowledgement: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        delegate?.watchConnectivityDidActivate(activationState, error: error)
+        Task { @MainActor [weak self] in
+            self?.delegate?.watchConnectivityDidActivate(activationState, error: error)
+        }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         do {
             let acknowledgement = try WatchCaptureProtocol.ack(from: userInfo)
-            delegate?.watchConnectivityDidReceive(acknowledgement)
+            Task { @MainActor [weak self] in
+                self?.delegate?.watchConnectivityDidReceive(acknowledgement)
+            }
         } catch {
             logger.error("Invalid durable acknowledgement: \(error.localizedDescription, privacy: .public)")
         }
     }
 
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                replyHandler(WatchCaptureProtocol.commandErrorMessage(for: WatchSpikeError.connectivityUnavailable))
+                return
+            }
+
+            do {
+                switch message["kind"] as? String {
+                case WatchCaptureProtocol.startRequestKind:
+                    let request = try WatchCaptureProtocol.startRequest(from: message)
+                    guard let delegate else { throw WatchSpikeError.connectivityUnavailable }
+                    let acknowledgement = await delegate.watchConnectivityDidReceiveStartRequest(request)
+                    replyHandler(try WatchCaptureProtocol.startAckMessage(for: acknowledgement))
+                case WatchCaptureProtocol.stopRequestKind:
+                    let request = try WatchCaptureProtocol.stopRequest(from: message)
+                    guard let delegate else { throw WatchSpikeError.connectivityUnavailable }
+                    let acknowledgement = await delegate.watchConnectivityDidReceiveStopRequest(request)
+                    replyHandler(try WatchCaptureProtocol.stopAckMessage(for: acknowledgement))
+                default:
+                    throw WatchSpikeError.connectivityUnavailable
+                }
+            } catch {
+                replyHandler(WatchCaptureProtocol.commandErrorMessage(for: error))
+            }
+        }
+    }
+
     func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
-        delegate?.watchConnectivityDidFinishFileTransfer(
-            fileName: fileTransfer.file.fileURL.lastPathComponent,
-            error: error
-        )
+        let fileName = fileTransfer.file.fileURL.lastPathComponent
+        Task { @MainActor [weak self] in
+            self?.delegate?.watchConnectivityDidFinishFileTransfer(
+                fileName: fileName,
+                error: error
+            )
+        }
     }
 }

@@ -2,6 +2,74 @@ import AVFoundation
 import Combine
 import Foundation
 
+private enum AudioSessionActivationError: Error, Sendable {
+    case activationFailed
+    case deactivationFailed
+}
+
+enum AudioSessionActivation {
+    static func activate(_ session: AVAudioSession, options: AVAudioSession.SetActiveOptions = []) async throws {
+        if #available(iOS 27.0, *) {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                session.activate(options: AVAudioSessionActivationOptions()) { activated, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if activated {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: AudioSessionActivationError.activationFailed)
+                    }
+                }
+            }
+            return
+        }
+
+        let rawOptions = options.rawValue
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try session.setActive(true, options: AVAudioSession.SetActiveOptions(rawValue: rawOptions))
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    static func deactivate(_ session: AVAudioSession, options: AVAudioSession.SetActiveOptions = []) async throws {
+        if #available(iOS 27.0, *) {
+            let asyncOptions: AVAudioSessionDeactivationOptions = options.contains(.notifyOthersOnDeactivation)
+                ? .notifyOthersOnDeactivation
+                : []
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                session.deactivate(options: asyncOptions) { deactivated, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if deactivated {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: AudioSessionActivationError.deactivationFailed)
+                    }
+                }
+            }
+            return
+        }
+
+        let rawOptions = options.rawValue
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    try session.setActive(false, options: AVAudioSession.SetActiveOptions(rawValue: rawOptions))
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+}
+
 @MainActor
 final class AudioSessionCoordinator {
     static let shared = AudioSessionCoordinator()
@@ -9,8 +77,10 @@ final class AudioSessionCoordinator {
     private weak var activePlayer: AudioPlayer?
     private(set) var isRecordingActive = false
 
-    func beginRecording() {
-        activePlayer?.stop()
+    func beginRecording() async {
+        if let activePlayer {
+            await activePlayer.stop()
+        }
         activePlayer = nil
         isRecordingActive = true
     }
@@ -19,16 +89,18 @@ final class AudioSessionCoordinator {
         isRecordingActive = false
     }
 
-    func beginPlayback(for player: AudioPlayer) -> Bool {
+    func beginPlayback(for player: AudioPlayer) async -> Bool {
         guard !isRecordingActive else { return false }
         if activePlayer !== player {
-            activePlayer?.stop()
+            if let activePlayer {
+                await activePlayer.stop()
+            }
         }
         activePlayer = player
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .spokenAudio)
-            try session.setActive(true)
+            try await AudioSessionActivation.activate(session)
             return true
         } catch {
             activePlayer = nil
@@ -36,10 +108,13 @@ final class AudioSessionCoordinator {
         }
     }
 
-    func endPlayback(for player: AudioPlayer) {
+    func endPlayback(for player: AudioPlayer) async {
         guard activePlayer === player else { return }
         activePlayer = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        try? await AudioSessionActivation.deactivate(
+            AVAudioSession.sharedInstance(),
+            options: .notifyOthersOnDeactivation
+        )
     }
 }
 
@@ -59,8 +134,8 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         super.init()
     }
 
-    func load(url: URL) throws {
-        stop()
+    func load(url: URL) async throws {
+        await stop()
         player = nil
         canPlay = false
         duration = 0
@@ -78,7 +153,7 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     @discardableResult
-    func toggle() -> Bool {
+    func toggle() async -> Bool {
         guard let player, canPlay else {
             errorMessage = AudioPlayerError.noAudio.errorDescription
             return false
@@ -87,16 +162,16 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             player.pause()
             isPlaying = false
             ticker?.cancel()
-            sessionCoordinator.endPlayback(for: self)
+            await sessionCoordinator.endPlayback(for: self)
             return true
         }
-        guard sessionCoordinator.beginPlayback(for: self) else {
+        guard await sessionCoordinator.beginPlayback(for: self) else {
             errorMessage = AudioPlayerError.recordingInProgress.errorDescription
             isPlaying = false
             return false
         }
         guard player.play() else {
-            sessionCoordinator.endPlayback(for: self)
+            await sessionCoordinator.endPlayback(for: self)
             errorMessage = AudioPlayerError.couldNotPlay.errorDescription
             isPlaying = false
             return false
@@ -108,17 +183,17 @@ final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func seek(to time: TimeInterval) { guard let player else { return }; player.currentTime = min(max(0, time), player.duration); currentTime = player.currentTime }
-    func stop() {
+    func stop() async {
         player?.stop()
         player?.currentTime = 0
         currentTime = 0
         isPlaying = false
         ticker?.cancel()
-        sessionCoordinator.endPlayback(for: self)
+        await sessionCoordinator.endPlayback(for: self)
     }
 
     private func startTicker() { ticker?.cancel(); ticker = Task { [weak self] in while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(200)); guard let self else { return }; self.currentTime = self.player?.currentTime ?? 0 } } }
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { Task { @MainActor [weak self] in self?.stop() } }
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { Task { @MainActor [weak self] in await self?.stop() } }
 }
 
 enum AudioPlayerError: LocalizedError {

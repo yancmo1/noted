@@ -16,16 +16,13 @@ private struct RecordSurface: View {
 
     @State private var title = "Untitled Meeting"
     @State private var mode = "meeting"
-    @State private var consentAcknowledged = false
     @State private var moments: [TimeInterval] = []
-    @State private var showConsentNotice = false
     @State private var savedMessage: String?
+    @State private var recordOnWatch = false
 
     private var isActive: Bool {
         recorder.state == .recording || recorder.state == .paused || recorder.state == .interrupted
     }
-
-    private var needsConsent: Bool { mode == "conversation" || mode == "meeting" }
 
     var body: some View {
         NavigationStack {
@@ -51,17 +48,20 @@ private struct RecordSurface: View {
                     .pickerStyle(.segmented)
                     .disabled(isActive || recorder.isStarting || recorder.isSaving)
 
-                    if needsConsent && !consentAcknowledged && !isActive {
-                        Button { showConsentNotice = true } label: {
+                    if model.watchCaptureSupported {
+                        Toggle(isOn: $recordOnWatch) {
                             VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Label("Acknowledge recording consent", systemImage: "person.2.wave.2")
-                                Text("Make sure everyone present knows and agrees where required.")
+                                Label("Also record on Apple Watch", systemImage: "applewatch")
+                                Text("Keeps the iPhone and Watch microphones as separate source tracks in this meeting.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .buttonStyle(.bordered)
-                        .tint(Color.notedAttention)
+                        .disabled(isActive || recorder.isStarting || recorder.isSaving)
+
+                        if recordOnWatch || model.watchCaptureStatus != .idle {
+                            watchStatusCard
+                        }
                     }
 
                     captureControl
@@ -98,11 +98,6 @@ private struct RecordSurface: View {
                 .padding(AppSpacing.screen)
             }
             .navigationTitle("Record")
-            .confirmationDialog("Recording notice", isPresented: $showConsentNotice, titleVisibility: .visible) {
-                Button("I understand and have permission") { consentAcknowledged = true }
-            } message: {
-                Text("You are responsible for complying with applicable recording laws and workplace policies.")
-            }
         }
     }
 
@@ -117,7 +112,6 @@ private struct RecordSurface: View {
                 idleCaptureLabel
             }
             .buttonStyle(.plain)
-            .disabled(needsConsent && !consentAcknowledged)
             .accessibilityLabel("Start recording")
             .accessibilityIdentifier("record-toggle")
         }
@@ -193,7 +187,11 @@ private struct RecordSurface: View {
                 .accessibilityIdentifier("record-mark-moment")
 
                 Button {
-                    if recorder.state == .recording { recorder.pause() } else { recorder.resume() }
+                    if recorder.state == .recording {
+                        recorder.pause()
+                    } else {
+                        Task { await recorder.resume() }
+                    }
                 } label: {
                     Label(recorder.state == .recording ? "Pause" : "Resume", systemImage: recorder.state == .recording ? "pause.fill" : "play.fill")
                 }
@@ -213,6 +211,17 @@ private struct RecordSurface: View {
         }
     }
 
+    private var watchStatusCard: some View {
+        let status = model.watchCaptureStatus
+        return Label(watchStatusText(status), systemImage: watchStatusIcon(status))
+            .font(.subheadline)
+            .foregroundStyle(watchStatusColor(status))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(AppSpacing.card)
+            .background(watchStatusColor(status).opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.card))
+            .accessibilityIdentifier("watch-capture-status")
+    }
+
     private var accessibilityLabel: String {
         if recorder.isStarting { return "Starting recording" }
         if recorder.isSaving { return "Saving recording" }
@@ -228,10 +237,10 @@ private struct RecordSurface: View {
             model.errorMessage = nil
             Task {
                 do {
-                    try await recorder.start(
+                    try await model.startCapture(
                         title: title,
                         consentMode: mode,
-                        consentAcknowledged: consentAcknowledged || !needsConsent
+                        alsoRecordOnWatch: recordOnWatch
                     )
                 } catch {
                     model.errorMessage = error.localizedDescription
@@ -242,16 +251,43 @@ private struct RecordSurface: View {
 
     private func stopRecording() {
         Task {
-            guard !recorder.isSaving, let finished = await recorder.stop() else { return }
-            var saved = finished
-            saved.title = title.isEmpty ? "Untitled Recording" : title
-            saved.consentMode = mode
-            saved.bookmarks = moments.map { LocalBookmark(id: UUID(), timestamp: $0, createdAt: Date()) }
-            model.saveFinishedRecording(saved)
+            guard !recorder.isSaving,
+                  let saved = await model.stopCapture(title: title, consentMode: mode, moments: moments) else { return }
             moments = []
             withAnimation { savedMessage = saved.state == .needsRepair ? "Recording needs repair and was kept on this iPhone" : "Recording saved on this iPhone" }
             try? await Task.sleep(for: .seconds(4))
             if !isActive { withAnimation { savedMessage = nil } }
+        }
+    }
+
+    private func watchStatusText(_ status: WatchCaptureStatus) -> String {
+        switch status {
+        case .idle: "Apple Watch capture is off."
+        case .starting: "Starting the Apple Watch source…"
+        case .recording: "Apple Watch is recording a separate source."
+        case .unavailable(_, let message), .failed(_, let message): message
+        case .stopNeedsConfirmation: "Confirm Stop on the Apple Watch to finalize its source."
+        case .stopped: "Apple Watch source stopped. Its local file will transfer and remain protected until acknowledgement."
+        }
+    }
+
+    private func watchStatusIcon(_ status: WatchCaptureStatus) -> String {
+        switch status {
+        case .recording: "record.circle.fill"
+        case .starting: "arrow.triangle.2.circlepath"
+        case .unavailable, .failed, .stopNeedsConfirmation: "exclamationmark.triangle.fill"
+        case .stopped: "checkmark.circle.fill"
+        case .idle: "applewatch"
+        }
+    }
+
+    private func watchStatusColor(_ status: WatchCaptureStatus) -> Color {
+        switch status {
+        case .recording: Color.notedRecording
+        case .unavailable, .failed, .stopNeedsConfirmation: Color.notedAttention
+        case .stopped: Color.notedSuccess
+        case .starting: Color.notedPrimary
+        case .idle: .secondary
         }
     }
 }
