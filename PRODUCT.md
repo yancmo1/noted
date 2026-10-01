@@ -2,6 +2,8 @@
 
 <!-- impeccable:product-schema 1 -->
 
+This is the current product contract for Noted. Historical Memory Garden and Pocket material lives under `docs/archive/` and does not override this document or the current implementation.
+
 ## Platform
 
 adaptive

@@ -36,7 +36,7 @@ Prove the smallest reliable Watch recording and Watch-to-iPhone handoff path on 
 
 ## Baseline captured during audit
 
-- Live repository: `/Users/yancyshepherd/Projects/noted`
+- Live repository: the current checkout root
 - Existing iPhone deployment target: iOS 17.0.
 - Existing iPhone recorder: `AVAudioRecorder`, AAC/M4A, mono, 44.1 kHz, 64 kbps.
 - Existing iPhone local durability: Application Support with an atomic recording index and backup; interrupted drafts are surfaced for recovery.

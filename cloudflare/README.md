@@ -44,7 +44,7 @@ After the Worker is deployed and tested with an empty database, import the exist
 
 ```bash
 IMPORT_CONFIRM=YES \\
-LOCAL_PROJECT_DIR=/absolute/path/to/AUTONOMOUS_AGENT \\
+LOCAL_PROJECT_DIR=.. \\
 CLOUDFLARE_API_TOKEN=... \\
 CLOUDFLARE_ACCOUNT_ID=... \\
 D1_DATABASE_ID=... \\

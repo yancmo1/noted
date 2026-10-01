@@ -2,7 +2,7 @@
 
 Noted is a recording-first personal memory system. Press record, talk naturally, and keep the original audio alongside a searchable transcript, useful memories, open loops, and source-backed answers. Notes, links, and files remain available as secondary capture paths.
 
-The native iOS client lives in [`apps/ios`](</Users/yancyshepherd/Desktop/AUTONOMOUS_AGENT/apps/ios/README.md>). It is a local-first capture and playback client for this same API—not a second backend. The iPhone preserves recordings on-device, queues uploads, and opens timestamped transcript/evidence citations in native playback.
+The native iOS client lives in [`apps/ios`](apps/ios/README.md). It is a local-first capture and playback client for this same API, not a second backend. The iPhone preserves recordings on-device, queues uploads, and opens timestamped transcript and evidence citations in native playback.
 
 ## Run locally
 
@@ -18,7 +18,7 @@ For demo data: `npm run seed`.
 
 For long-recording chunking during local development, install `ffmpeg` and `ffprobe` (for example, `brew install ffmpeg` on macOS). The Docker API image includes them.
 
-The default local configuration uses Groq for transcription and reasoning: `whisper-large-v3-turbo` converts audio to text, and `openai/gpt-oss-120b` produces structured summaries, decisions, action items, follow-ups, and unresolved questions. When `LLM_API_KEY` is empty, reasoning reuses `TRANSCRIPTION_API_KEY`; set it explicitly to use a separate credential. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE=mock` for deterministic local tests. Legacy `AI_*` variables remain supported.
+The sample configuration documents the private-network `ai-lab` transcription provider and a Groq-compatible reasoning provider. The API also supports the Mac-local Whisper provider and local Ollama reasoning. When no transcription provider is configured, audio remains safely available as `partial` until you add a transcript manually or configure one. Set `LLM_MODE=mock` for deterministic local tests. Legacy `AI_*` variables remain supported.
 
 ### Local-first transcription tracer
 
@@ -104,4 +104,4 @@ The native client stores a draft manifest and audio in iOS Application Support b
 
 The default data directory is `./storage`. Back up `storage/memory-garden.json` and `storage/uploads/` together. JSON export is available from Settings or `GET /api/export`.
 
-See `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and `docs/KNOWN_LIMITATIONS.md` for implementation details and tradeoffs. The pivot requirements are captured in `outputs/PIVOT_PRD_POCKET_APP.md`.
+Read `PRODUCT.md`, `docs/CURRENT_PRODUCT.md`, `docs/ARCHITECTURE.md`, `docs/WORKFLOWS.md`, `docs/ROADMAP.md`, `docs/DECISIONS.md`, and `docs/KNOWN_LIMITATIONS.md` for current product and implementation details. Earlier Memory Garden and Pocket PRDs are retained under `docs/archive/` as historical reference only.

@@ -12,6 +12,8 @@ storage/uploads
 DerivedData/
 *.xcarchive
 storage/uploads/incoming
+storage/local-transcription
+__pycache__/
 
 # wrangler files
 .wrangler
